@@ -45,6 +45,7 @@ wheels/
 venv/
 env/
 ENV/
+khoaluan/
 .env
 .venv
 env.bak/

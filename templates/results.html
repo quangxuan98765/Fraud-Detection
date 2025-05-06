@@ -1,0 +1,364 @@
+{% extends 'layout.html' %}
+
+{% block title %}Kết Quả Phân Tích Gian Lận{% endblock %}
+
+{% block extra_css %}
+<style>
+.node-chart {
+    height: 500px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+}
+.metric-card {
+    transition: transform 0.3s ease;
+}
+.metric-card:hover {
+    transform: translateY(-5px);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-12">
+        <h1 class="display-5 mb-3">Kết Quả Phân Tích Gian Lận</h1>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/">Trang chủ</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Kết quả</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<!-- Dashboard chính -->
+<div class="row mb-4">
+    <!-- Metric Cards -->
+    <div class="col-md-3">
+        <div class="card metric-card border-primary text-center mb-3">
+            <div class="card-body">
+                <h5 class="card-title text-primary">Tài khoản</h5>
+                <p class="display-5 mb-0" id="totalAccounts">...</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card border-success text-center mb-3">
+            <div class="card-body">
+                <h5 class="card-title text-success">Giao dịch</h5>
+                <p class="display-5 mb-0" id="totalTransactions">...</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card border-danger text-center mb-3">
+            <div class="card-body">
+                <h5 class="card-title text-danger">Gian lận</h5>
+                <p class="display-5 mb-0" id="fraudCount">...</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card border-warning text-center mb-3">
+            <div class="card-body">
+                <h5 class="card-title text-warning">Cộng đồng</h5>
+                <p class="display-5 mb-0" id="communityCount">...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Biểu đồ và Bảng -->
+<div class="row mb-4">
+    <!-- Network Graph -->
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-network-wired me-2"></i> Biểu Đồ Mạng Lưới Gian Lận</span>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-light" id="zoomIn">
+                            <i class="fas fa-search-plus"></i>
+                        </button>
+                        <button class="btn btn-sm btn-light" id="zoomOut">
+                            <i class="fas fa-search-minus"></i>
+                        </button>
+                        <button class="btn btn-sm btn-light" id="resetZoom">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="network-graph" class="node-chart">
+                    <!-- D3.js graph will be rendered here -->
+                    <div class="d-flex justify-content-center align-items-center h-100">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary mb-3" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="lead">Đang tải biểu đồ...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Suspicious Accounts -->
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header bg-danger text-white">
+                <i class="fas fa-exclamation-triangle me-2"></i> Tài Khoản Đáng Ngờ
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th>Tài khoản</th>
+                                <th>Điểm</th>
+                                <th>Cộng đồng</th>
+                            </tr>
+                        </thead>
+                        <tbody id="suspicious-accounts">
+                            <tr>
+                                <td colspan="3" class="text-center py-3">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    Đang tải dữ liệu...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fraud Analysis -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <i class="fas fa-chart-pie me-2"></i> Thống Kê Chi Tiết
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div id="fraud-by-type" style="height: 300px;"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <div id="community-graph" style="height: 300px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+<!-- Thêm vào phần extra_js -->
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.2/dist/echarts.min.js"></script>
+<script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+<script>
+// Load data from API
+document.addEventListener('DOMContentLoaded', function() {
+    // Fetch data for dashboard
+    fetch('/api/data')
+        .then(response => response.json())
+        .then(data => {
+            console.log("Data received:", data);
+            
+            // Update metrics
+            document.getElementById('totalAccounts').textContent = data.metrics.accounts.toLocaleString();
+            document.getElementById('totalTransactions').textContent = data.metrics.transactions.toLocaleString();
+            document.getElementById('fraudCount').textContent = data.metrics.fraud.toLocaleString();
+            document.getElementById('communityCount').textContent = data.metrics.communities.toLocaleString();
+            
+            // Check if analysis data exists
+            if (!data.has_analysis) {
+                showNoAnalysisMessage();
+            } else {
+                // Render all visualizations
+                renderSuspiciousAccounts(data.suspicious);
+                renderFraudByTypeChart(data.fraud_by_type);
+                renderCommunityGraph(data.communities);
+            }
+            
+            // Always create network graph (it will show message if no data)
+            createNetworkGraph(data);
+        })
+        .catch(error => {
+            console.error('Error fetching data:', error);
+            showErrorMessage();
+        });
+        
+    function showNoAnalysisMessage() {
+        document.getElementById('network-graph').innerHTML = `
+            <div class="d-flex justify-content-center align-items-center h-100">
+                <div class="text-center">
+                    <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                    <p class="lead">Chưa có kết quả phân tích.<br>Hãy chạy phân tích gian lận trước!</p>
+                    <a href="/" class="btn btn-primary mt-3">Quay lại trang chủ</a>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('suspicious-accounts').innerHTML = `
+            <tr><td colspan="3" class="text-center py-3">Chưa có kết quả phân tích</td></tr>
+        `;
+    }
+    
+    function showErrorMessage() {
+        document.getElementById('network-graph').innerHTML = `
+            <div class="d-flex justify-content-center align-items-center h-100">
+                <div class="text-center">
+                    <i class="fas fa-exclamation-circle fa-3x text-danger mb-3"></i>
+                    <p class="lead">Có lỗi xảy ra khi tải dữ liệu</p>
+                    <a href="/results" class="btn btn-primary mt-3">Thử lại</a>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Render suspicious accounts table
+    function renderSuspiciousAccounts(accounts) {
+        if (!accounts || accounts.length === 0) {
+            document.getElementById('suspicious-accounts').innerHTML = `
+                <tr><td colspan="3" class="text-center py-3">Không tìm thấy tài khoản đáng ngờ</td></tr>
+            `;
+            return;
+        }
+        
+        let html = '';
+        accounts.forEach(account => {
+            html += `
+            <tr>
+                <td>${account.id}</td>
+                <td><span class="badge bg-${account.score > 0.7 ? 'danger' : 'warning'}">${account.score.toFixed(2)}</span></td>
+                <td>${account.community}</td>
+            </tr>
+            `;
+        });
+        
+        document.getElementById('suspicious-accounts').innerHTML = html;
+    }
+    
+    // Render Fraud by Type chart
+    function renderFraudByTypeChart(data) {
+        if (!data || data.length === 0) return;
+        
+        const chartDom = document.getElementById('fraud-by-type');
+        const myChart = echarts.init(chartDom);
+        
+        const chartData = data.map(item => ({
+            value: item.count,
+            name: item.type
+        }));
+        
+        const option = {
+            title: {
+                text: 'Gian lận theo loại giao dịch',
+                left: 'center'
+            },
+            tooltip: {
+                trigger: 'item'
+            },
+            legend: {
+                orient: 'vertical',
+                left: 'left'
+            },
+            series: [
+                {
+                    name: 'Số lượng gian lận',
+                    type: 'pie',
+                    radius: '70%',
+                    data: chartData,
+                    emphasis: {
+                        itemStyle: {
+                            shadowBlur: 10,
+                            shadowOffsetX: 0,
+                            shadowColor: 'rgba(0, 0, 0, 0.5)'
+                        }
+                    }
+                }
+            ]
+        };
+        
+        myChart.setOption(option);
+        
+        // Responsive chart
+        window.addEventListener('resize', function() {
+            myChart.resize();
+        });
+    }
+    
+    // Render Community Graph
+    function renderCommunityGraph(data) {
+        if (!data || data.length === 0) return;
+        
+        const chartDom = document.getElementById('community-graph');
+        const myChart = echarts.init(chartDom);
+        
+        const communities = data.map(item => 'C' + item.community);
+        const counts = data.map(item => item.count);
+        
+        const option = {
+            title: {
+                text: 'Phân phối cộng đồng',
+                left: 'center'
+            },
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: {
+                    type: 'shadow'
+                }
+            },
+            xAxis: {
+                type: 'category',
+                data: communities
+            },
+            yAxis: {
+                type: 'value',
+                name: 'Số tài khoản'
+            },
+            series: [
+                {
+                    data: counts,
+                    type: 'bar',
+                    colorBy: 'data'
+                }
+            ]
+        };
+        
+        myChart.setOption(option);
+        
+        // Responsive chart
+        window.addEventListener('resize', function() {
+            myChart.resize();
+        });
+    }
+});
+
+// Zoom controls for network graph
+document.getElementById('zoomIn').addEventListener('click', function() {
+    // Will be implemented when D3.js graph is ready
+    console.log('Zoom in');
+});
+
+document.getElementById('zoomOut').addEventListener('click', function() {
+    // Will be implemented when D3.js graph is ready
+    console.log('Zoom out');
+});
+
+document.getElementById('resetZoom').addEventListener('click', function() {
+    // Will be implemented when D3.js graph is ready
+    console.log('Reset zoom');
+});
+</script>
+{% endblock %}

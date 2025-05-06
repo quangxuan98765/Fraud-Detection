@@ -1,0 +1,230 @@
+{% extends 'layout.html' %}
+
+{% block title %}Phát hiện Gian lận - Trang chủ{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12 text-center">
+        <h1 class="display-4">Phát hiện Gian lận</h1>
+        <p class="lead">Phân tích giao dịch và phát hiện hành vi gian lận với Neo4j</p>
+    </div>
+</div>
+
+<div class="row">
+    <!-- PHẦN 1: IMPORT FILE -->
+    <div class="col-lg-6">
+        <div class="card border-primary mb-4">
+            <div class="card-header bg-primary text-white">
+                <i class="fas fa-file-import me-2"></i> Import Dữ Liệu
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" id="uploadForm">
+                    <div class="mb-3">
+                        <label for="file" class="form-label fw-bold">1. Chọn file CSV</label>
+                        <div class="input-group">
+                            <input type="file" class="form-control" id="file" name="file" accept=".csv" required>
+                            <button class="btn btn-outline-secondary" type="button" id="file-info-btn" 
+                                    data-bs-toggle="tooltip" data-bs-placement="right" 
+                                    title="File giao dịch cần có các cột: nameOrig, nameDest, amount, step, isFraud, type">
+                                <i class="fas fa-info-circle"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">Định dạng hỗ trợ: CSV</div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary" id="uploadBtn">
+                            <i class="fas fa-upload me-2"></i> Import Dữ Liệu
+                        </button>
+                    </div>
+
+                    <div class="progress mt-3 d-none" id="uploadProgress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                            role="progressbar" style="width: 0%"></div>
+                    </div>
+                </form>
+
+                <div class="mt-4">
+                    <h6 class="fw-bold">Trạng thái Database:</h6>
+                    {% if has_data %}
+                        <div class="alert alert-success py-2 d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="fas fa-check-circle me-2"></i> Đã có dữ liệu
+                            </div>
+                            <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#clearDbModal">
+                                <i class="fas fa-trash-alt me-1"></i> Xóa dữ liệu
+                            </button>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning py-2">
+                            <i class="fas fa-exclamation-circle me-2"></i> Chưa có dữ liệu
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PHẦN 2: PHÂN TÍCH GIAN LẬN -->
+    <div class="col-lg-6">
+        <div class="card border-success mb-4">
+            <div class="card-header bg-success text-white">
+                <i class="fas fa-chart-network me-2"></i> Phân Tích Gian Lận
+            </div>
+            <div class="card-body">
+                <h5 class="fw-bold mb-3">2. Chạy phân tích gian lận</h5>
+                
+                <p class="mb-4">
+                    Hệ thống sẽ phân tích dữ liệu giao dịch sử dụng các thuật toán đồ thị và 
+                    phát hiện các mẫu hành vi gian lận dựa trên kết nối giữa các tài khoản.
+                </p>
+                
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i> 
+                    Phân tích sẽ sử dụng các thuật toán:
+                    <ul class="mb-0 mt-2">
+                        <li>PageRank - Xác định tài khoản có độ ảnh hưởng cao</li>
+                        <li>Community Detection - Phát hiện cụm tài khoản liên quan</li>
+                        <li>Pattern Analysis - Phân tích mẫu giao dịch bất thường</li>
+                    </ul>
+                </div>
+
+                <form action="{{ url_for('analyze') }}" method="post" id="analyzeForm">
+                    <div class="d-grid mt-3">
+                        <button type="submit" class="btn btn-success" id="analyzeBtn" 
+                                {% if not has_data %}disabled{% endif %}>
+                            <i class="fas fa-play me-2"></i> Bắt Đầu Phân Tích
+                        </button>
+                    </div>
+                </form>
+
+                <div class="progress mt-3 d-none" id="analyzeProgress">
+                    <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" 
+                        role="progressbar" style="width: 0%"></div>
+                </div>
+
+                {% if has_data %}
+                    <div class="d-grid mt-3">
+                        <a href="{{ url_for('results') }}" class="btn btn-outline-primary">
+                            <i class="fas fa-chart-pie me-2"></i> Xem Kết Quả Trước Đó
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PHẦN 3: HƯỚNG DẪN -->
+<div class="row">
+    <div class="col-12">
+        <div class="card border-info">
+            <div class="card-header bg-info text-white">
+                <i class="fas fa-info-circle me-2"></i> Hướng Dẫn Sử Dụng
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h5 class="fw-bold">Quy trình phát hiện gian lận:</h5>
+                        <ol>
+                            <li>Tải lên file CSV chứa dữ liệu giao dịch</li>
+                            <li>Chạy phân tích để phát hiện mô hình gian lận</li>
+                            <li>Xem kết quả dưới dạng đồ thị và báo cáo chi tiết</li>
+                        </ol>
+                    </div>
+                    <div class="col-md-6">
+                        <h5 class="fw-bold">Yêu cầu định dạng dữ liệu:</h5>
+                        <ul>
+                            <li><code>nameOrig</code>: ID tài khoản gửi tiền</li>
+                            <li><code>nameDest</code>: ID tài khoản nhận tiền</li>
+                            <li><code>amount</code>: Số tiền giao dịch</li>
+                            <li><code>step</code>: Thời điểm giao dịch</li>
+                            <li><code>isFraud</code>: Nhãn gian lận (0/1)</li>
+                            <li><code>type</code>: Loại giao dịch</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal xác nhận xóa database -->
+<div class="modal fade" id="clearDbModal" tabindex="-1" aria-labelledby="clearDbModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="clearDbModalLabel">Xác nhận xóa database</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Bạn chắc chắn muốn xóa <strong>tất cả dữ liệu</strong> trong database?
+                </div>
+                <p>Hành động này không thể hoàn tác. Tất cả dữ liệu tài khoản, giao dịch và kết quả phân tích sẽ bị xóa vĩnh viễn.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                <form action="{{ url_for('clear_database') }}" method="post">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash-alt me-2"></i> Xóa tất cả dữ liệu
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Hiệu ứng loading cho form upload
+document.getElementById('uploadForm').addEventListener('submit', function() {
+    document.getElementById('uploadProgress').classList.remove('d-none');
+    document.getElementById('uploadBtn').disabled = true;
+    document.getElementById('uploadBtn').innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Đang xử lý...';
+    
+    // Hiệu ứng tiến trình
+    let progress = 0;
+    const progressBar = document.querySelector('#uploadProgress .progress-bar');
+    const interval = setInterval(function() {
+        progress += 5;
+        if (progress > 90) {
+            clearInterval(interval);
+        }
+        progressBar.style.width = progress + '%';
+    }, 500);
+});
+
+// Hiệu ứng loading cho form analyze
+document.getElementById('analyzeForm').addEventListener('submit', function() {
+    document.getElementById('analyzeProgress').classList.remove('d-none');
+    document.getElementById('analyzeBtn').disabled = true;
+    document.getElementById('analyzeBtn').innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Đang phân tích...';
+    
+    // Hiệu ứng tiến trình
+    let progress = 0;
+    const progressBar = document.querySelector('#analyzeProgress .progress-bar');
+    const interval = setInterval(function() {
+        progress += 3;
+        if (progress > 90) {
+            clearInterval(interval);
+        }
+        progressBar.style.width = progress + '%';
+    }, 700);
+});
+
+// Kích hoạt tooltips
+var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+    return new bootstrap.Tooltip(tooltipTriggerEl)
+});
+
+// Kiểm tra trạng thái sau khi đóng modal xóa database
+document.getElementById('clearDbModal').addEventListener('hidden.bs.modal', function () {
+    // Tải lại trang để cập nhật trạng thái
+    window.location.reload();
+});
+</script>
+{% endblock %}
