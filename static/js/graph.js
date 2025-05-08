@@ -187,3 +187,137 @@ function createNetworkGraph(data) {
         );
     });
 }
+
+// Hàm hiển thị network graph với D3.js
+function renderNetwork(data) {
+    console.log("Rendering network with data:", data);
+    
+    if (!data || !data.nodes || data.nodes.length === 0) {
+        document.getElementById('network-graph').innerHTML = `
+            <div class="d-flex justify-content-center align-items-center h-100">
+                <div class="text-center">
+                    <i class="fas fa-exclamation-circle fa-3x text-warning mb-3"></i>
+                    <p class="lead">Không có dữ liệu mạng lưới nào phù hợp</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    // Clear previous content
+    document.getElementById('network-graph').innerHTML = '';
+    
+    // Simple network visualization using D3
+    const width = document.getElementById('network-graph').clientWidth;
+    const height = document.getElementById('network-graph').clientHeight;
+    
+    const svg = d3.select('#network-graph')
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+    
+    // Create a force simulation
+    const simulation = d3.forceSimulation(data.nodes)
+        .force('link', d3.forceLink(data.links).id(d => d.id).distance(100))
+        .force('charge', d3.forceManyBody().strength(-400))
+        .force('center', d3.forceCenter(width / 2, height / 2));
+    
+    // Create links
+    const links = svg.append('g')
+        .selectAll('line')
+        .data(data.links)
+        .enter()
+        .append('line')
+        .attr('stroke', d => d.is_fraud == 1 ? '#ff4444' : '#999')
+        .attr('stroke-opacity', 0.6)
+        .attr('stroke-width', d => Math.sqrt(d.value || 1));
+    
+    // Create nodes
+    const color = d3.scaleOrdinal(d3.schemeCategory10);
+    
+    const nodes = svg.append('g')
+        .selectAll('circle')
+        .data(data.nodes)
+        .enter()
+        .append('circle')
+        .attr('r', d => 5 + (d.score * 5))
+        .attr('fill', d => color(d.community || 0))
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 1.5)
+        .call(d3.drag()
+            .on('start', dragstarted)
+            .on('drag', dragged)
+            .on('end', dragended)
+        );
+    
+    // Node labels
+    const labels = svg.append('g')
+        .selectAll('text')
+        .data(data.nodes)
+        .enter()
+        .append('text')
+        .text(d => d.id)
+        .attr('font-size', 10)
+        .attr('dx', 12)
+        .attr('dy', 4)
+        .style('pointer-events', 'none');
+    
+    // Update positions
+    simulation.on('tick', () => {
+        links
+            .attr('x1', d => d.source.x)
+            .attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x)
+            .attr('y2', d => d.target.y);
+        
+        nodes
+            .attr('cx', d => d.x)
+            .attr('cy', d => d.y);
+        
+        labels
+            .attr('x', d => d.x)
+            .attr('y', d => d.y);
+    });
+    
+    // Drag functions
+    function dragstarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+    
+    function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+    
+    function dragended(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+    }
+    
+    // Implement zoom controls
+    const zoom = d3.zoom()
+        .scaleExtent([0.1, 10])
+        .on('zoom', zoomed);
+    
+    svg.call(zoom);
+    
+    function zoomed(event) {
+        svg.selectAll('g').attr('transform', event.transform);
+    }
+    
+    // Hook up zoom buttons
+    document.getElementById('zoomIn').addEventListener('click', () => {
+        svg.transition().call(zoom.scaleBy, 1.3);
+    });
+    
+    document.getElementById('zoomOut').addEventListener('click', () => {
+        svg.transition().call(zoom.scaleBy, 0.7);
+    });
+    
+    document.getElementById('resetZoom').addEventListener('click', () => {
+        svg.transition().call(zoom.transform, d3.zoomIdentity);
+    });
+}

@@ -168,35 +168,64 @@
 <script>
 // Load data from API
 document.addEventListener('DOMContentLoaded', function() {
-    // Fetch data for dashboard
-    fetch('/api/data')
-        .then(response => response.json())
-        .then(data => {
-            console.log("Data received:", data);
-            
-            // Update metrics
-            document.getElementById('totalAccounts').textContent = data.metrics.accounts.toLocaleString();
-            document.getElementById('totalTransactions').textContent = data.metrics.transactions.toLocaleString();
-            document.getElementById('fraudCount').textContent = data.metrics.fraud.toLocaleString();
-            document.getElementById('communityCount').textContent = data.metrics.communities.toLocaleString();
-            
-            // Check if analysis data exists
-            if (!data.has_analysis) {
-                showNoAnalysisMessage();
-            } else {
-                // Render all visualizations
-                renderSuspiciousAccounts(data.suspicious);
-                renderFraudByTypeChart(data.fraud_by_type);
-                renderCommunityGraph(data.communities);
-            }
-            
-            // Always create network graph (it will show message if no data)
-            createNetworkGraph(data);
+    // Gọi API theo phương thức bất đồng bộ
+    Promise.all([
+        fetch('/api/metrics').then(r => r.json()).then(data => {
+            console.log("API metrics:", data);
+            return data;
+        }),
+        fetch('/api/suspicious').then(r => r.json()).then(data => {
+            console.log("API suspicious:", data);
+            return data;
+        }),
+        fetch('/api/network').then(r => r.json()).then(data => {
+            console.log("API network:", data);
+            return data;
+        }),
+        fetch('/api/fraud-stats').then(r => r.json()).then(data => {
+            console.log("API fraud-stats:", data);
+            return data;
         })
-        .catch(error => {
-            console.error('Error fetching data:', error);
-            showErrorMessage();
-        });
+    ])
+    .then(([metricsData, suspiciousData, networkData, statsData]) => {
+        // Kiểm tra dữ liệu
+        if (metricsData.has_data) {
+            // Cập nhật metrics
+            updateMetrics(metricsData.metrics);
+            // Cập nhật bảng tài khoản đáng ngờ
+            renderSuspiciousAccounts(suspiciousData.suspicious);
+            // Vẽ biểu đồ mạng lưới
+            if (networkData.network) {
+                renderNetwork(networkData.network);
+            }
+            if (statsData) {
+                renderFraudByTypeChart(statsData.fraud_by_type);
+                renderCommunityGraph(statsData.communities);
+            }
+        } else {
+            showNoAnalysisMessage();
+        }
+    })
+    .catch(error => {
+        console.error('Lỗi khi tải dữ liệu:', error);
+        showErrorMessage();
+    });
+    
+    // Cập nhật metrics dashboard
+    // Update the metrics function
+    function updateMetrics(metrics) {
+        document.getElementById('totalAccounts').textContent = metrics.accounts.toLocaleString();
+        document.getElementById('totalTransactions').textContent = metrics.transactions.toLocaleString();
+        
+        // Add comparison between detected and actual fraud
+        const detectedFraud = metrics.fraud || 0;
+        const actualFraud = metrics.actual_fraud || 0;
+        
+        document.getElementById('fraudCount').innerHTML = 
+            `${detectedFraud.toLocaleString()} `;
+        
+        document.getElementById('communityCount').textContent = metrics.communities || "0";
+    }
         
     function showNoAnalysisMessage() {
         document.getElementById('network-graph').innerHTML = `
@@ -342,6 +371,125 @@ document.addEventListener('DOMContentLoaded', function() {
         window.addEventListener('resize', function() {
             myChart.resize();
         });
+    }
+
+    // Network visualization function - ADD THIS
+    function renderNetwork(network) {
+        console.log("Rendering network with:", network);
+        
+        // Check if we have data
+        if (!network.nodes || network.nodes.length === 0) {
+            document.getElementById('network-graph').innerHTML = `
+                <div class="d-flex justify-content-center align-items-center h-100">
+                    <div class="text-center">
+                        <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                        <p class="lead">Không có dữ liệu mạng lưới để hiển thị.</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+        
+        // Clear the container
+        document.getElementById('network-graph').innerHTML = '';
+        
+        // Create SVG
+        const width = document.getElementById('network-graph').clientWidth;
+        const height = 500;
+        
+        const svg = d3.select('#network-graph')
+            .append('svg')
+            .attr('width', width)
+            .attr('height', height);
+        
+        // Add zoom capability
+        const g = svg.append('g');
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 3])
+            .on('zoom', (event) => {
+                g.attr('transform', event.transform);
+            });
+        
+        svg.call(zoom);
+        
+        // Create simulation
+        const simulation = d3.forceSimulation(network.nodes)
+            .force('link', d3.forceLink(network.links).id(d => d.id).distance(100))
+            .force('charge', d3.forceManyBody().strength(-300))
+            .force('center', d3.forceCenter(width / 2, height / 2));
+        
+        // Add links
+        const link = g.append('g')
+            .selectAll('line')
+            .data(network.links)
+            .enter().append('line')
+            .attr('stroke-width', d => Math.sqrt(d.value || 1))
+            .attr('stroke', d => d.is_fraud ? '#ff4136' : '#aaa');
+        
+        // Add nodes
+        const node = g.append('g')
+            .selectAll('circle')
+            .data(network.nodes)
+            .enter().append('circle')
+            .attr('r', d => 5 + (d.score || 0) * 5)
+            .attr('fill', d => {
+                const score = d.score || 0;
+                if (score > 0.7) return '#ff4136'; // Red
+                if (score > 0.5) return '#ff851b'; // Orange
+                return '#0074d9'; // Blue
+            })
+            .call(d3.drag()
+                .on('start', dragstarted)
+                .on('drag', dragged)
+                .on('end', dragended));
+        
+        // Add tooltips
+        node.append('title')
+            .text(d => `ID: ${d.id}\nScore: ${(d.score || 0).toFixed(2)}`);
+        
+        // Update positions
+        simulation.on('tick', () => {
+            link
+                .attr('x1', d => d.source.x)
+                .attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x)
+                .attr('y2', d => d.target.y);
+            
+            node
+                .attr('cx', d => d.x)
+                .attr('cy', d => d.y);
+        });
+        
+        // Connect zoom controls
+        document.getElementById('zoomIn').addEventListener('click', function() {
+            svg.transition().duration(500).call(zoom.scaleBy, 1.5);
+        });
+        
+        document.getElementById('zoomOut').addEventListener('click', function() {
+            svg.transition().duration(500).call(zoom.scaleBy, 0.7);
+        });
+        
+        document.getElementById('resetZoom').addEventListener('click', function() {
+            svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+        });
+        
+        // Drag functions
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+        
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+        
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
     }
 });
 
