@@ -12,3 +12,8 @@ MAX_RELATIONSHIPS = 400000
 DEFAULT_TARGET_NODES = 180000
 DEFAULT_TARGET_EDGES = 193500
 DEFAULT_FRAUD_RATE = 0.00129
+
+# Fraud detection thresholds
+FRAUD_SCORE_THRESHOLD = 0.6     # Ngưỡng chính của điểm gian lận khi hiển thị giao dịch đáng ngờ
+SUSPICIOUS_THRESHOLD = 0.5      # Ngưỡng cho tài khoản đáng ngờ
+HIGH_RISK_THRESHOLD = 0.75      # Ngưỡng cho tài khoản nguy cơ cao

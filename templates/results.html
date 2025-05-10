@@ -49,11 +49,12 @@
                 <h5 class="card-title text-success">Giao dịch</h5>
                 <p class="display-5 mb-0" id="totalTransactions">...</p>
             </div>
-        </div>    </div>    <div class="col-md-3">
-        <div class="card metric-card border-danger text-center mb-3">
-            <div class="card-body">                <h5 class="card-title text-danger">Giao dịch bị phát hiện</h5>
+        </div>    </div>    <div class="col-md-3">        <div class="card metric-card border-danger text-center mb-3">            <div class="card-body">
+                <h5 class="card-title text-danger">Giao dịch bị phát hiện</h5>
                 <p class="display-5 mb-0" id="fraudCount">...</p>
-                <small class="text-muted">(fraud_score > 0.6)</small>
+                <small class="text-muted">(fraud_score > {{ fraud_threshold }})</small>
+                <br>
+                <small class="text-muted">Đã giảm ngưỡng để tăng khả năng phát hiện</small>
             </div>
         </div>
     </div>
@@ -303,24 +304,24 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateMetrics(metrics) {
         document.getElementById('totalAccounts').textContent = metrics.accounts.toLocaleString();
         document.getElementById('totalTransactions').textContent = metrics.transactions.toLocaleString();
-        
-        // Lấy số liệu phát hiện gian lận
+          // Lấy số liệu phát hiện gian lận
         const detectedTransactions = metrics.detected_fraud_transactions || 0;
         const fraudAccounts = metrics.fraud || 0;
-        const groundTruth = metrics.actual_fraud || 0;            // Hiển thị số giao dịch phát hiện là gian lận và độ chính xác
+        const groundTruth = metrics.ground_truth_frauds || 0;
+        
+        // Hiển thị số giao dịch phát hiện là gian lận và độ chính xác
         document.getElementById('fraudCount').innerHTML = 
-            `${detectedTransactions.toLocaleString()} / ${groundTruth.toLocaleString()}
+            `${detectedTransactions.toLocaleString()} 
              <div class="mt-2">
                 <small class="text-muted">Chính xác: ${(metrics.precision * 100).toFixed(1)}%</small><br>
                 <small class="text-muted">Recall: ${(metrics.recall * 100).toFixed(1)}%</small><br>
                 <small class="text-muted">F1-Score: ${(metrics.f1_score * 100).toFixed(1)}%</small>
              </div>`;
-        
-        // Thêm tooltip để hiển thị thông tin chi tiết
+          // Thêm tooltip để hiển thị thông tin chi tiết
         const fraudCardBody = document.querySelector('.card-body:has(#fraudCount)');
         if (fraudCardBody) {
             const tooltipText = `${detectedTransactions.toLocaleString()} giao dịch bị phát hiện là gian lận<br>
-                                ${fraudAccounts.toLocaleString()} tài khoản có điểm gian lận > 0.6`;
+                                ${fraudAccounts.toLocaleString()} tài khoản có điểm gian lận > {{fraud_threshold}}`;
             
             fraudCardBody.setAttribute('data-bs-toggle', 'tooltip');
             fraudCardBody.setAttribute('data-bs-html', 'true');
