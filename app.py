@@ -196,12 +196,12 @@ def get_fraud_stats():
                 MATCH (a:Account)
                 WHERE a.fraud_score IS NOT NULL
                 RETURN 
-                    COUNT(CASE WHEN a.fraud_score > 0.9 THEN 1 END) AS very_high,
-                    COUNT(CASE WHEN a.fraud_score > 0.7 AND a.fraud_score <= 0.9 THEN 1 END) AS high,
-                    COUNT(CASE WHEN a.fraud_score > 0.5 AND a.fraud_score <= 0.7 THEN 1 END) AS medium,
-                    COUNT(CASE WHEN a.fraud_score > 0.3 AND a.fraud_score <= 0.5 THEN 1 END) AS low,
-                    COUNT(CASE WHEN a.fraud_score > 0.1 AND a.fraud_score <= 0.3 THEN 1 END) AS very_low,
-                    COUNT(CASE WHEN a.fraud_score <= 0.1 THEN 1 END) AS negligible,
+                    COUNT(CASE WHEN a.fraud_score > 0.85 THEN 1 END) AS very_high,
+                    COUNT(CASE WHEN a.fraud_score > 0.75 AND a.fraud_score <= 0.85 THEN 1 END) AS high,
+                    COUNT(CASE WHEN a.fraud_score > 0.65 AND a.fraud_score <= 0.75 THEN 1 END) AS medium,
+                    COUNT(CASE WHEN a.fraud_score > 0.45 AND a.fraud_score <= 0.65 THEN 1 END) AS low,
+                    COUNT(CASE WHEN a.fraud_score > 0.25 AND a.fraud_score <= 0.45 THEN 1 END) AS very_low,
+                    COUNT(CASE WHEN a.fraud_score <= 0.25 THEN 1 END) AS negligible,
                     AVG(a.fraud_score) AS avg_score
             """).single()
               # Thống kê về chu trình giao dịch - đơn giản hóa truy vấn
@@ -244,7 +244,6 @@ def get_metrics():
         with detector.driver.session() as session:
             # Truy vấn tối ưu để lấy thống kê
             basic_metrics = session.run("""
-                // Đếm số lượng tài khoản và giao dịch - đơn giản và nhanh
                 MATCH (a:Account)
                 WITH count(a) AS total_accounts
                 
@@ -253,17 +252,29 @@ def get_metrics():
                 
                 // Đếm tài khoản gian lận với các cách tiếp cận khác nhau
                 MATCH (f:Account)
-                WHERE f.fraud_score > 0.6
-                
+                WHERE f.fraud_score > 0.75
                 WITH total_accounts, total_transactions, count(f) AS detected_fraud_accounts
                 
-                // Đếm các giao dịch được đánh dấu gian lận (từ dữ liệu đào tạo)
-                MATCH ()-[r:SENT {is_fraud: 1}]->()
+                // Đếm giao dịch được phát hiện là gian lận
+                MATCH (s1:Account)-[r1:SENT]->(t1:Account)
+                WHERE s1.fraud_score > 0.85 OR t1.fraud_score > 0.85
+                WITH total_accounts, total_transactions, detected_fraud_accounts, count(r1) AS detected_fraud_transactions
+                
+                // Đếm các giao dịch có nhãn is_fraud=1 và được phát hiện bởi thuật toán (true positives)
+                MATCH (s2:Account)-[r2:SENT {is_fraud: 1}]->(t2:Account)
+                WHERE s2.fraud_score > 0.85 AND t2.fraud_score > 0.85
+                WITH total_accounts, total_transactions, detected_fraud_accounts, 
+                    detected_fraud_transactions, count(r2) AS true_positives
+                
+                // Đếm tổng số giao dịch được đánh nhãn gian lận
+                MATCH ()-[r3:SENT {is_fraud: 1}]->()
                 
                 RETURN total_accounts, 
-                       total_transactions, 
-                       detected_fraud_accounts,
-                       count(r) AS actual_fraud_transactions
+                    total_transactions,
+                    detected_fraud_accounts,
+                    detected_fraud_transactions,
+                    true_positives,
+                    count(r3) AS ground_truth_frauds
             """).single()
             
             # Phân phối điểm gian lận - giúp hiểu rõ hơn về phân bố
@@ -298,7 +309,9 @@ def get_metrics():
                 "accounts": basic_metrics.get("total_accounts", 0) if basic_metrics else 0,
                 "transactions": basic_metrics.get("total_transactions", 0) if basic_metrics else 0,
                 "fraud": basic_metrics.get("detected_fraud_accounts", 0) if basic_metrics else 0,
-                "actual_fraud": basic_metrics.get("actual_fraud_transactions", 0) if basic_metrics else 0,
+                "ground_truth_frauds": basic_metrics.get("ground_truth_frauds", 0) if basic_metrics else 0,
+                "detected_fraud_transactions": basic_metrics.get("detected_fraud_transactions", 0) if basic_metrics else 0,
+                "true_positives": basic_metrics.get("true_positives", 0) if basic_metrics else 0,
                 "very_high_risk": fraud_levels.get("very_high_risk", 0) if fraud_levels else 0,
                 "high_risk": fraud_levels.get("high_risk", 0) if fraud_levels else 0,
                 "medium_risk": fraud_levels.get("medium_risk", 0) if fraud_levels else 0,
@@ -308,6 +321,27 @@ def get_metrics():
                 "high_risk_communities": communities.get("high_risk_communities", 0) if communities else 0,
                 "accounts_in_cycles": cycles.get("accounts_in_cycles", 0) if cycles else 0
             }
+
+            # Kiểm tra nếu metrics tồn tại thì tính toán thêm
+            if basic_metrics:
+                true_positives = basic_metrics.get("true_positives", 0)
+                detected = basic_metrics.get("detected_fraud_transactions", 0)
+                actual = basic_metrics.get("ground_truth_frauds", 0)
+
+                # Precision = TP / (TP + FP) 
+                precision = true_positives / detected if detected > 0 else 0
+                
+                # Recall = TP / (TP + FN)
+                recall = true_positives / actual if actual > 0 else 0
+                
+                # F1 Score = 2 * (Precision * Recall) / (Precision + Recall)
+                f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
+
+                metrics_data.update({
+                    "precision": precision,
+                    "recall": recall,
+                    "f1_score": f1_score
+                })
             
             return jsonify({
                 "metrics": metrics_data,

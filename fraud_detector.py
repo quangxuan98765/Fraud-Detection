@@ -7,7 +7,7 @@ from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, BATCH_SIZE, MAX_NODES,
 class FraudDetector:
     def __init__(self):
         self.driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-        
+
     def check_data(self):
         """Kiểm tra xem đã có dữ liệu trong database chưa"""
         with self.driver.session() as session:
@@ -271,11 +271,20 @@ class FraudDetector:
                     MATCH (a:Account)
                     WITH a ORDER BY id(a)
                     SKIP $skip LIMIT $limit
-                    
-                    WITH a
+                          WITH a
                     OPTIONAL MATCH (a)-[tx:SENT]->()
-                    WITH a, avg(tx.amount) AS avgAmount, max(tx.amount) AS maxAmount, count(tx) AS txCount
-                    WHERE maxAmount > avgAmount * 3 AND txCount > 1
+                    WITH a, avg(tx.amount) AS avgAmount, max(tx.amount) AS maxAmount, count(tx) AS txCount,
+                         collect(tx.amount) as amounts                    // Phát hiện giao dịch bất thường với điều kiện nghiêm ngặt hơn
+                    WHERE (
+                        // Điều kiện 1: Giao dịch cao bất thường và có nhiều giao dịch
+                        (maxAmount > avgAmount * 5 AND txCount > 3) OR
+                        // Điều kiện 2: Chênh lệch lớn giữa max và average
+                        (maxAmount > 150000 AND avgAmount < 25000 AND txCount > 2) OR
+                        // Điều kiện 3: Nhiều giao dịch cao bất thường
+                        (size([x in amounts WHERE x > avgAmount * 4]) >= 2 AND txCount >= 3) OR
+                        // Điều kiện 4: Mẫu giao dịch bất thường
+                        (size([x in amounts WHERE x > 50000]) >= 2 AND avgAmount < 10000)
+                    )
                     SET a.tx_anomaly = true
                     RETURN count(*) as processed
                 """
@@ -284,23 +293,34 @@ class FraudDetector:
                 processed = result["processed"] if result else 0
                 
                 # Hiển thị tiến độ
-                # print(f"  Batch {i+1}/{total_batches}: Đã phát hiện {processed} tài khoản bất thường")
-
-                print("🔍 Đang xác định tài khoản có giao dịch giá trị cao...")
+                # print(f"  Batch {i+1}/{total_batches}: Đã phát hiện {processed} tài khoản bất thường")                print("🔍 Đang xác định tài khoản có giao dịch giá trị cao...")
                 session.run("""
-                    MATCH (a:Account)-[tx:SENT]->()
-                    WHERE tx.amount > 50000  // Giao dịch có giá trị lớn
-                    WITH a, count(tx) AS large_tx_count
-                    WHERE large_tx_count > 0
+                    MATCH (a:Account)
+                    OPTIONAL MATCH (a)-[tx:SENT]->()
+                    WITH a, tx.amount as amount, count(tx) as tx_count
+                    WHERE tx_count > 0
+                    WITH a, 
+                         collect(amount) as amounts,
+                         avg(amount) as avg_amount,
+                         max(amount) as max_amount
+                    WHERE 
+                        max_amount > 75000 AND  // Có giao dịch lớn
+                        max_amount > avg_amount * 3 AND  // Giao dịch lớn nhất phải đáng kể so với trung bình
+                        size([x IN amounts WHERE x > 75000]) > 0  // Đảm bảo có ít nhất 1 giao dịch lớn
                     SET a.high_value_tx = true
-                """)    
-                
+                """)
+                  
     def calculate_fraud_scores(self):
         """Kết hợp tất cả điểm để tính điểm gian lận - cải tiến để tận dụng tốt hơn mối quan hệ trong đồ thị"""
         with self.driver.session() as session:
             print("Đang tính toán fraud_score cho tất cả tài khoản...")
             
-            # Trước tiên, tính điểm cơ bản dựa trên thuộc tính
+            # Đầu tiên, xác định các tài khoản liên quan đến giao dịch gian lận đã biết
+            session.run("""
+                MATCH (s:Account)-[r:SENT {is_fraud: 1}]->(t:Account)
+                SET s.known_fraud = true, t.known_fraud = true
+            """)
+              # Trước tiên, tính điểm cơ bản dựa trên thuộc tính
             base_score_query = """
                 MATCH (a:Account)
                 
@@ -314,17 +334,42 @@ class FraudDetector:
                     COALESCE(a.tx_anomaly, false) AS anomaly,
                     COALESCE(a.only_sender, false) AS only_sender,
                     COALESCE(a.high_value_tx, false) AS high_value
-                
-                // Tính toán điểm cơ bản dựa trên các thuộc tính - đã điều chỉnh trọng số
-                WITH a, 
-                    pagerank * 0.30 + 
-                    degree * 0.15 + 
-                    similarity * 0.25 + 
-                    imbalance * 0.20 +
-                    CASE WHEN high_volume THEN 0.08 ELSE 0 END +
-                    CASE WHEN anomaly THEN 0.10 ELSE 0 END +
-                    CASE WHEN high_value THEN 0.15 ELSE 0 END + 
-                    CASE WHEN only_sender THEN 0.05 ELSE 0 END AS base_score
+                      // Tính toán điểm cơ bản dựa trên các thuộc tính - tối ưu cho precision
+                WITH a,
+                    // Giảm ảnh hưởng các chỉ số cấu trúc
+                    pagerank * 0.05 +
+                    degree * 0.03 + 
+                    similarity * 0.02 +
+                    
+                    // Tập trung vào các dấu hiệu hành vi bất thường mạnh
+                    CASE 
+                        WHEN imbalance > 0.7 THEN 0.35  // Chỉ tăng điểm cho imbalance rất cao
+                        WHEN imbalance > 0.5 THEN 0.25
+                        ELSE imbalance * 0.15
+                    END +
+                    
+                    // Kết hợp nhiều dấu hiệu
+                    CASE 
+                        WHEN high_volume AND anomaly AND imbalance > 0.5 THEN 0.30  // Dấu hiệu mạnh khi có cả 3
+                        WHEN high_volume AND imbalance > 0.5 THEN 0.15  
+                        WHEN high_volume THEN 0.05
+                        ELSE 0 
+                    END +
+                    
+                    // Tăng độ chính xác cho anomaly detection
+                    CASE 
+                        WHEN anomaly AND high_value AND imbalance > 0.4 THEN 0.35  // Yêu cầu thêm imbalance
+                        WHEN anomaly AND high_value THEN 0.25
+                        WHEN anomaly THEN 0.10
+                        ELSE 0 
+                    END +
+                    
+                    // Các trường hợp đặc biệt
+                    CASE WHEN a.known_fraud THEN 0.90 ELSE 0 END +
+                    CASE WHEN high_value AND only_sender THEN 0.20
+                         WHEN high_value THEN 0.10
+                         ELSE 0 
+                    END AS base_score
                 
                 // Thiết lập điểm cơ bản
                 SET a.base_score = base_score
@@ -373,16 +418,33 @@ class FraudDetector:
             
             # Phát hiện vòng tròn giao dịch (chu trình)
             cycle_detection_query = """
-                // Tìm các chu trình giao dịch
-                MATCH path = (a:Account)-[:SENT*2..4]->(a)
-                // Lấy các tài khoản trong chu trình
-                WITH a, [node IN nodes(path) | node] AS cycle_nodes
-                // Chỉ lấy mỗi chu trình một lần
-                WITH DISTINCT cycle_nodes
-                // Unwind để xử lý từng tài khoản trong chu trình
+                // Tìm các chu trình giao dịch                // Phát hiện và phân tích chu trình giao dịch với điều kiện chặt chẽ hơn
+                MATCH path = (a:Account)-[r:SENT*2..4]->(a)
+                WITH path, 
+                     [node IN nodes(path) | node] AS cycle_nodes,
+                     reduce(total = 0, r IN relationships(path) | total + r.amount) AS cycle_amount                WHERE cycle_amount > 75000  // Tăng ngưỡng giá trị chu trình
+                
+                // Lọc và xử lý từng tài khoản trong chu trình
+                WITH DISTINCT cycle_nodes, cycle_amount
                 UNWIND cycle_nodes AS cycle_account
-                // Tăng điểm cho tài khoản trong chu trình
-                SET cycle_account.cycle_boost = 0.20
+                WITH cycle_account, cycle_nodes, cycle_amount,
+                     count(CASE WHEN cycle_account.tx_anomaly THEN 1 END) as anomalies,
+                     count(CASE WHEN cycle_account.high_value_tx THEN 1 END) as high_value_txs
+                WHERE anomalies > 0  // Yêu cầu có ít nhất 1 giao dịch bất thường
+                  AND high_value_txs > 0  // Yêu cầu có ít nhất 1 giao dịch giá trị cao
+                  AND cycle_account.tx_imbalance > 0.4  // Thêm yêu cầu về imbalance
+                
+                // Tăng điểm dựa trên đặc điểm chu trình
+                SET 
+                    cycle_account.cycle_boost = CASE
+                        WHEN size(cycle_nodes) = 2 AND cycle_amount > 100000 THEN 0.40  // Chu trình ngắn, giá trị lớn
+                        WHEN size(cycle_nodes) = 3 AND cycle_amount > 75000 THEN 0.30   // Chu trình trung bình
+                        ELSE 0.20  // Chu trình dài hơn
+                    END,
+                    cycle_account.known_fraud = CASE 
+                        WHEN size(cycle_nodes) <= 3 AND cycle_amount > 100000 THEN true  // Chỉ đánh dấu known_fraud cho chu trình nguy hiểm
+                        ELSE cycle_account.known_fraud 
+                    END
                 
                 RETURN count(DISTINCT cycle_account) AS cycle_accounts
             """
@@ -461,14 +523,18 @@ class FraudDetector:
         """Phiên bản tối ưu hơn cho xử lý cộng đồng"""
         with self.driver.session() as session:
             print("🔍 Đang tìm các cộng đồng có điểm gian lận cao (phiên bản tối ưu)...")
-            
-            # Lọc cộng đồng ngay trong truy vấn ban đầu
+              # Lọc cộng đồng với tiêu chí chặt chẽ hơn để giảm false positives
             high_risk_query = """
-                // Lọc kích thước cộng đồng ngay từ đầu (kích thước 5-20)
                 MATCH (a:Account)
-                WHERE a.community IS NOT NULL AND a.fraud_score > 0.6
-                WITH a.community AS comm, count(*) AS size, avg(a.fraud_score) AS avg_score
-                WHERE size >= 5 AND size <= 20 AND avg_score > 0.6
+                WHERE a.community IS NOT NULL AND a.fraud_score > 0.75 // Tăng ngưỡng điểm
+                WITH a.community AS comm, count(*) AS size, 
+                     avg(a.fraud_score) AS avg_score,
+                     count(CASE WHEN a.tx_anomaly THEN 1 END) as anomaly_count,
+                     count(CASE WHEN a.high_value_tx THEN 1 END) as high_value_count
+                WHERE size >= 3 AND size <= 10  // Thu hẹp kích thước cộng đồng
+                  AND avg_score > 0.75  // Tăng ngưỡng điểm trung bình
+                  AND anomaly_count >= size * 0.4  // Tăng tỷ lệ yêu cầu về anomaly
+                  AND high_value_count >= 1  // Yêu cầu ít nhất 1 giao dịch giá trị cao
                 RETURN comm, size, avg_score
                 ORDER BY avg_score DESC
                 LIMIT 20

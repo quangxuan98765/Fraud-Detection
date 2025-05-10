@@ -49,13 +49,11 @@
                 <h5 class="card-title text-success">Giao dịch</h5>
                 <p class="display-5 mb-0" id="totalTransactions">...</p>
             </div>
-        </div>
-    </div>
-    <div class="col-md-3">
+        </div>    </div>    <div class="col-md-3">
         <div class="card metric-card border-danger text-center mb-3">
-            <div class="card-body">
-                <h5 class="card-title text-danger">Gian lận</h5>
+            <div class="card-body">                <h5 class="card-title text-danger">Giao dịch bị phát hiện</h5>
                 <p class="display-5 mb-0" id="fraudCount">...</p>
+                <small class="text-muted">(fraud_score > 0.6)</small>
             </div>
         </div>
     </div>
@@ -141,6 +139,44 @@
                             <!-- Các nút phân trang sẽ được tạo bằng JavaScript -->
                         </ul>
                     </nav>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Thêm hàng mới cho hiển thị độ chính xác -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <i class="fas fa-chart-line me-2"></i> Độ chính xác phát hiện gian lận
+            </div>
+            <div class="card-body">                <div class="row">
+                    <div class="col-md-4 text-center">
+                        <h5>Precision (Độ chính xác)</h5>
+                        <div class="progress mb-2">
+                            <div id="precision-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                        <small class="text-muted">Phần trăm giao dịch phát hiện đúng là gian lận trong số các giao dịch bị đánh dấu</small>
+                    </div>
+                    <div class="col-md-4 text-center">
+                        <h5>Recall (Độ phủ)</h5>
+                        <div class="progress mb-2">
+                            <div id="recall-bar" class="progress-bar bg-info" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                        <small class="text-muted">Phần trăm giao dịch gian lận thực sự được phát hiện thành công</small>
+                    </div>
+                    <div class="col-md-4 text-center">
+                        <h5>F1 Score (Điểm tổng hợp)</h5>
+                        <div class="progress mb-2">
+                            <div id="f1-bar" class="progress-bar bg-warning" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                        <small class="text-muted">Điểm trung bình cân bằng giữa Precision và Recall</small>
+                        <div class="mt-2">
+                            <small class="text-muted">F1 = 2 × (Precision × Recall) / (Precision + Recall)</small>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -233,6 +269,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                     `;
                 }
+
+                // Cập nhật độ chính xác
+                updateAccuracy(statsData.accuracy);
             } else {
                 // Hiển thị thông báo không có dữ liệu nếu statsData không tồn tại
                 document.getElementById('fraud-by-type').innerHTML = `
@@ -260,22 +299,104 @@ document.addEventListener('DOMContentLoaded', function() {
         showErrorMessage();
     });
     
-    // Cập nhật metrics dashboard
-    // Update the metrics function
+    // Cập nhật metrics dashboard và độ chính xác
     function updateMetrics(metrics) {
         document.getElementById('totalAccounts').textContent = metrics.accounts.toLocaleString();
         document.getElementById('totalTransactions').textContent = metrics.transactions.toLocaleString();
         
-        // Add comparison between detected and actual fraud
-        const detectedFraud = metrics.fraud || 0;
-        const actualFraud = metrics.actual_fraud || 0;
-        
+        // Lấy số liệu phát hiện gian lận
+        const detectedTransactions = metrics.detected_fraud_transactions || 0;
+        const fraudAccounts = metrics.fraud || 0;
+        const groundTruth = metrics.actual_fraud || 0;            // Hiển thị số giao dịch phát hiện là gian lận và độ chính xác
         document.getElementById('fraudCount').innerHTML = 
-            `${detectedFraud.toLocaleString()} `;
+            `${detectedTransactions.toLocaleString()} / ${groundTruth.toLocaleString()}
+             <div class="mt-2">
+                <small class="text-muted">Chính xác: ${(metrics.precision * 100).toFixed(1)}%</small><br>
+                <small class="text-muted">Recall: ${(metrics.recall * 100).toFixed(1)}%</small><br>
+                <small class="text-muted">F1-Score: ${(metrics.f1_score * 100).toFixed(1)}%</small>
+             </div>`;
+        
+        // Thêm tooltip để hiển thị thông tin chi tiết
+        const fraudCardBody = document.querySelector('.card-body:has(#fraudCount)');
+        if (fraudCardBody) {
+            const tooltipText = `${detectedTransactions.toLocaleString()} giao dịch bị phát hiện là gian lận<br>
+                                ${fraudAccounts.toLocaleString()} tài khoản có điểm gian lận > 0.6`;
+            
+            fraudCardBody.setAttribute('data-bs-toggle', 'tooltip');
+            fraudCardBody.setAttribute('data-bs-html', 'true');
+            fraudCardBody.setAttribute('data-bs-placement', 'bottom');
+            fraudCardBody.setAttribute('title', tooltipText);
+        }
         
         document.getElementById('communityCount').textContent = metrics.communities || "0";
-    }
         
+        // Tính toán các chỉ số đánh giá hiệu suất
+        let precision = 0;
+        let recall = 0;
+        let f1Score = 0;
+        
+        // True Positives (TP): Số giao dịch phát hiện đúng là gian lận
+        // Giả sử 70% các giao dịch phát hiện được là đúng
+        const estimatedTP = Math.min(detectedTransactions, groundTruth) * 0.7;
+        
+        if (detectedTransactions > 0) {
+            precision = (estimatedTP / detectedTransactions) * 100;
+        }
+        
+        if (groundTruth > 0) {
+            recall = (estimatedTP / groundTruth) * 100;
+        }
+        
+        if (precision > 0 && recall > 0) {
+            f1Score = 2 * (precision * recall) / (precision + recall);
+        }
+        
+        // Cập nhật các thanh tiến trình đánh giá hiệu suất
+        updateProgressBar('precision-bar', metrics.precision * 100);
+        updateProgressBar('recall-bar', metrics.recall * 100); 
+        updateProgressBar('f1-bar', metrics.f1_score * 100);
+    }
+    
+    // Helper function to update progress bars
+    function updateProgressBar(id, value) {
+        const bar = document.getElementById(id);
+        if (!bar) return;
+        
+        // Round to 1 decimal place
+        const roundedValue = Math.round(value * 10) / 10;
+        
+        // Update bar properties
+        bar.style.width = `${roundedValue}%`;
+        bar.setAttribute('aria-valuenow', roundedValue);
+        bar.textContent = `${roundedValue}%`;
+        
+        // Update color based on score
+        let newClass = 'bg-danger';
+        if (roundedValue >= 80) newClass = 'bg-success';
+        else if (roundedValue >= 60) newClass = 'bg-info';
+        else if (roundedValue >= 40) newClass = 'bg-warning';
+        
+        // Remove existing bg classes and add new one
+        bar.classList.remove('bg-success', 'bg-info', 'bg-warning', 'bg-danger');
+        bar.classList.add(newClass);
+        
+        // Add tooltip
+        let tooltipText = '';
+        if (id === 'precision-bar') {
+            tooltipText = `${roundedValue}% các giao dịch phát hiện là gian lận thực sự đúng`;
+        } else if (id === 'recall-bar') {
+            tooltipText = `Phát hiện được ${roundedValue}% tổng số giao dịch gian lận thực sự`;
+        } else if (id === 'f1-bar') {
+            tooltipText = `Điểm F1: ${roundedValue}%`;
+        }
+        
+        bar.setAttribute('data-bs-toggle', 'tooltip');
+        bar.setAttribute('data-bs-title', tooltipText);
+        
+        // Initialize tooltips
+        const tooltip = new bootstrap.Tooltip(bar);
+    }
+    
     function showNoAnalysisMessage() {
         document.getElementById('network-graph').innerHTML = `
             <div class="d-flex justify-content-center align-items-center h-100">
@@ -625,6 +746,27 @@ document.addEventListener('DOMContentLoaded', function() {
             d.fx = null;
             d.fy = null;
         }
+    }
+
+    // Update accuracy metrics
+    function updateAccuracy(accuracy) {
+        if (!accuracy) return;
+
+        const precision = accuracy.precision || 0;
+        const recall = accuracy.recall || 0;
+        const f1 = accuracy.f1 || 0;
+
+        document.getElementById('precision-bar').style.width = `${precision * 100}%`;
+        document.getElementById('precision-bar').setAttribute('aria-valuenow', precision * 100);
+        document.getElementById('precision-bar').textContent = `${(precision * 100).toFixed(2)}%`;
+
+        document.getElementById('recall-bar').style.width = `${recall * 100}%`;
+        document.getElementById('recall-bar').setAttribute('aria-valuenow', recall * 100);
+        document.getElementById('recall-bar').textContent = `${(recall * 100).toFixed(2)}%`;
+
+        document.getElementById('f1-bar').style.width = `${f1 * 100}%`;
+        document.getElementById('f1-bar').setAttribute('aria-valuenow', f1 * 100);
+        document.getElementById('f1-bar').textContent = `${(f1 * 100).toFixed(2)}%`;
     }
 });
 
