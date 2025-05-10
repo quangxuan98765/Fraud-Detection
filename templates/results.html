@@ -49,20 +49,25 @@
                 <h5 class="card-title text-success">Giao dịch</h5>
                 <p class="display-5 mb-0" id="totalTransactions">...</p>
             </div>
-        </div>    </div>    <div class="col-md-3">        <div class="card metric-card border-danger text-center mb-3">            <div class="card-body">
+        </div>    </div>    <div class="col-md-3">        <div class="card metric-card border-danger text-center mb-3" style="cursor: pointer;" onclick="showFraudTransactions()">            <div class="card-body">
                 <h5 class="card-title text-danger">Giao dịch bị phát hiện</h5>
                 <p class="display-5 mb-0" id="fraudCount">...</p>
                 <small class="text-muted">(fraud_score > {{ fraud_threshold }})</small>
                 <br>
-                <small class="text-muted">Đã giảm ngưỡng để tăng khả năng phát hiện</small>
+                <small class="text-muted">Click để xem chi tiết các giao dịch</small>
             </div>
         </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card metric-card border-warning text-center mb-3">
+    </div>    <div class="col-md-3">
+        <div class="card metric-card border-warning text-center mb-3" id="risk-community-card">
             <div class="card-body">
-                <h5 class="card-title text-warning">Cộng đồng</h5>
-                <p class="display-5 mb-0" id="communityCount">...</p>
+                <h5 class="card-title text-warning">Cộng đồng Rủi ro</h5>
+                <p class="display-5 mb-0" id="highRiskCommunityCount">...</p>
+                <small class="text-muted">(Nhóm ≥ 2 tài khoản có điểm gian lận cao)</small>
+                <div class="mt-2">
+                    <button class="btn btn-sm btn-outline-warning" id="showCommunitiesBtn">
+                        <i class="fas fa-eye"></i> Xem chi tiết
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -72,24 +77,31 @@
 <div class="row mb-4">
     <!-- Network Graph -->
     <div class="col-lg-8">
-        <div class="card mb-4">
-            <div class="card-header bg-primary text-white">
-                <div class="d-flex justify-content-between align-items-center">
+        <div class="card mb-4">            <div class="card-header bg-primary text-white">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                     <span><i class="fas fa-network-wired me-2"></i> Biểu Đồ Mạng Lưới Gian Lận</span>
                     <div class="btn-group">
-                        <button class="btn btn-sm btn-light" id="zoomIn">
+                        <button class="btn btn-sm btn-light shadow-sm" id="zoomIn" title="Phóng to">
                             <i class="fas fa-search-plus"></i>
                         </button>
-                        <button class="btn btn-sm btn-light" id="zoomOut">
+                        <button class="btn btn-sm btn-light shadow-sm" id="zoomOut" title="Thu nhỏ">
                             <i class="fas fa-search-minus"></i>
                         </button>
-                        <button class="btn btn-sm btn-light" id="resetZoom">
+                        <button class="btn btn-sm btn-light shadow-sm" id="resetZoom" title="Đặt lại">
                             <i class="fas fa-sync"></i>
                         </button>
                     </div>
                 </div>
             </div>
             <div class="card-body p-0">
+                <div class="alert alert-primary mb-0 rounded-0 border-0 py-2">
+                    <small>
+                        <b>Hướng dẫn:</b> 
+                        <i class="fas fa-mouse-pointer text-muted"></i> Kéo node để di chuyển | 
+                        <i class="fas fa-search-plus text-muted"></i> Cuộn chuột để phóng to/nhỏ | 
+                        <i class="fas fa-hand-pointer text-muted"></i> Di chuột qua node để xem chi tiết
+                    </small>
+                </div>
                 <div id="network-graph" class="node-chart">
                     <!-- D3.js graph will be rendered here -->
                     <div class="d-flex justify-content-center align-items-center h-100">
@@ -195,11 +207,27 @@
                 <div class="row">
                     <div class="col-md-6">
                         <div id="fraud-by-type" style="height: 300px;"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <div id="community-graph" style="height: 300px;"></div>
+                    </div>                    <div class="col-md-6">
+                        <div class="card mb-3 shadow-sm">
+                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                <span><i class="fas fa-users-cog me-2"></i> Phân Tích Cộng Đồng Rủi Ro</span>
+                                <button id="showCommunitiesBtn" class="btn btn-sm btn-light">
+                                    <i class="fas fa-search me-1"></i> Xem chi tiết
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="alert alert-primary mb-0 rounded-0 border-0 py-2">
+                                    <small>
+                                        <b>Phân tích:</b> Hiển thị top 10 cộng đồng rủi ro cao nhất được phát hiện trong hệ thống.
+                                    </small>
+                                </div>
+                                <div id="community-graph" style="height: 300px; position: relative;"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
+                  <!-- Thêm biểu đồ phân phối kích thước cộng đồng -->
+                <!-- Đã loại bỏ biểu đồ kích thước cộng đồng theo yêu cầu -->
             </div>
         </div>
     </div>
@@ -256,20 +284,22 @@ document.addEventListener('DOMContentLoaded', function() {
                             <small class="text-muted">Hệ thống chưa phát hiện được các mẫu gian lận theo loại giao dịch</small>
                         </div>
                     `;
-                }
-                
-                // Vẽ biểu đồ phân phối cộng đồng nếu có dữ liệu
-                if (statsData.communities && statsData.communities.length > 0) {
-                    renderCommunityGraph(statsData.communities);
-                } else {
-                    document.getElementById('community-graph').innerHTML = `
-                        <div class="text-center py-5">
-                            <i class="fas fa-users text-muted fa-3x mb-3"></i>
-                            <p class="mb-1">Không có dữ liệu về cộng đồng</p>
-                            <small class="text-muted">Chưa có cộng đồng tài khoản nào được phát hiện</small>
-                        </div>
-                    `;
-                }
+                }                    // Vẽ biểu đồ phân phối cộng đồng nếu có dữ liệu
+                    if (statsData.communities && statsData.communities.length > 0) {
+                        renderCommunityGraph(statsData.communities);
+                        
+                        // Thêm tiêu đề giải thích cho biểu đồ cộng đồng
+                        document.querySelector(".card:has(#community-graph) .card-header").innerHTML = 
+                            '<i class="fas fa-users-cog me-2"></i> Phân Tích Cộng Đồng Rủi Ro';
+                    } else {
+                        document.getElementById('community-graph').innerHTML = `
+                            <div class="text-center py-5">
+                                <i class="fas fa-users text-muted fa-3x mb-3"></i>
+                                <p class="mb-1">Không có dữ liệu về cộng đồng</p>
+                                <small class="text-muted">Chưa có cộng đồng tài khoản nào được phát hiện</small>
+                            </div>
+                        `;
+                    }
 
                 // Cập nhật độ chính xác
                 updateAccuracy(statsData.accuracy);
@@ -301,8 +331,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Cập nhật metrics dashboard và độ chính xác
-    function updateMetrics(metrics) {
-        document.getElementById('totalAccounts').textContent = metrics.accounts.toLocaleString();
+    function updateMetrics(metrics) {        document.getElementById('totalAccounts').textContent = metrics.accounts.toLocaleString();
         document.getElementById('totalTransactions').textContent = metrics.transactions.toLocaleString();
           // Lấy số liệu phát hiện gian lận
         const detectedTransactions = metrics.detected_fraud_transactions || 0;
@@ -329,7 +358,8 @@ document.addEventListener('DOMContentLoaded', function() {
             fraudCardBody.setAttribute('title', tooltipText);
         }
         
-        document.getElementById('communityCount').textContent = metrics.communities || "0";
+        // Hiển thị số cộng đồng có rủi ro cao
+        document.getElementById('highRiskCommunityCount').textContent = metrics.high_risk_communities || "0";
         
         // Tính toán các chỉ số đánh giá hiệu suất
         let precision = 0;
@@ -584,53 +614,126 @@ document.addEventListener('DOMContentLoaded', function() {
         window.addEventListener('resize', function() {
             myChart.resize();
         });
-    }    // Render Community Graph
+    }    // Hàm vẽ biểu đồ cộng đồng
     function renderCommunityGraph(data) {
-        if (!data || data.length === 0) return;
+        if (!data || data.length === 0) {
+            document.getElementById('community-graph').innerHTML = `
+                <div class="text-center py-5">
+                    <i class="fas fa-users text-muted fa-3x mb-3"></i>
+                    <p class="mb-1">Không có dữ liệu về cộng đồng</p>
+                    <small class="text-muted">Chưa có cộng đồng tài khoản nào được phát hiện</small>
+                </div>
+            `;
+            return;
+        }
         
         const chartDom = document.getElementById('community-graph');
         const myChart = echarts.init(chartDom);
         
-        const communities = data.map(item => 'C' + item.community);
-        const counts = data.map(item => item.count);
-        
+        // Sắp xếp và lọc dữ liệu
+        const chartData = data
+            .filter(item => item.count >= 2) // Chỉ hiển thị cộng đồng có ít nhất 2 tài khoản
+            .sort((a, b) => b.risk_ratio - a.risk_ratio) // Sắp xếp theo tỷ lệ rủi ro
+            .slice(0, 10) // Lấy 10 cộng đồng rủi ro nhất
+            .map(item => {
+                const riskPercent = Math.round(item.risk_ratio * 100);
+                return {
+                    value: item.count,
+                    name: `ID: ${item.community} (${item.count} tài khoản)`,
+                    community: item.community,
+                    avg_score: item.avg_score,
+                    high_risk: item.high_risk_count,
+                    risk_ratio: riskPercent,
+                    itemStyle: {
+                        color: getColorByRiskScore(item.avg_score)
+                    }
+                };
+            });
+            
         const option = {
-            title: {
-                text: 'Phân phối cộng đồng',
-                left: 'center'
-            },
             tooltip: {
-                trigger: 'axis',
-                axisPointer: {
-                    type: 'shadow'
+                trigger: 'item',
+                formatter: function(params) {
+                    return `<div style="font-weight:bold;border-bottom:1px solid #ddd;margin-bottom:5px;padding-bottom:5px">
+                                Cộng đồng #${params.data.community}
+                            </div>
+                            <div>Số tài khoản: <b>${params.data.value}</b></div>
+                            <div>Điểm gian lận TB: <b>${params.data.avg_score.toFixed(2)}</b></div>
+                            <div>Tài khoản rủi ro cao: <b>${params.data.high_risk}</b></div>
+                            <div>Tỷ lệ rủi ro: <b>${params.data.risk_ratio}%</b></div>
+                            <div style="margin-top:5px;font-style:italic;color:#999">Nhấn để xem chi tiết</div>`;
                 }
-            },
-            xAxis: {
-                type: 'category',
-                data: communities
-            },
-            yAxis: {
-                type: 'value',
-                name: 'Số tài khoản'
             },
             series: [
                 {
-                    data: counts,
-                    type: 'bar',
-                    colorBy: 'data'
+                    name: 'Cộng đồng rủi ro',
+                    type: 'pie',
+                    radius: ['30%', '70%'],
+                    avoidLabelOverlap: true,
+                    itemStyle: {
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    },
+                    label: {
+                        show: false
+                    },
+                    emphasis: {
+                        label: {
+                            show: true,
+                            formatter: '{b}',
+                            fontSize: 12
+                        },
+                        itemStyle: {
+                            shadowBlur: 10,
+                            shadowOffsetX: 0,
+                            shadowColor: 'rgba(0, 0, 0, 0.5)'
+                        }
+                    },
+                    labelLine: {
+                        show: false
+                    },
+                    data: chartData
                 }
             ]
         };
         
         myChart.setOption(option);
         
+        // Thêm sự kiện click cho biểu đồ để hiển thị thông tin chi tiết của cộng đồng
+        myChart.on('click', function(params) {
+            if (params.data && params.data.community) {
+                showCommunityDetails(params.data.community);
+            }
+        });
+        
         // Responsive chart
         window.addEventListener('resize', function() {
             myChart.resize();
         });
+        
+        // Helper function để lấy màu dựa trên điểm rủi ro
+        function getColorByRiskScore(score) {
+            if (score > 0.7) return '#dc3545'; // Đỏ - Rủi ro cao
+            if (score > 0.5) return '#fd7e14'; // Cam - Rủi ro trung bình
+            if (score > 0.3) return '#ffc107'; // Vàng - Rủi ro thấp
+            return '#20c997'; // Xanh lá - Bình thường
+        }
+        
+        // Hàm mở modal chi tiết cộng đồng
+        function showCommunityDetails(communityId) {
+            // Gọi hàm trong community_viewer.js
+            if (typeof window.showCommunityDetails === 'function') {
+                window.showCommunityDetails(communityId);
+            } else {
+                // Nếu chưa tải được hàm, mở modal danh sách cộng đồng
+                if (document.getElementById('showCommunitiesBtn')) {
+                    document.getElementById('showCommunitiesBtn').click();
+                }
+            }
+        }
     }
-
-    // Network visualization function - ADD THIS
+      // Hàm vẽ biểu đồ phân phối kích thước cộng đồng mới
+    // Đã loại bỏ hàm renderCommunityDistribution theo yêu cầu    // Network visualization function - ADD THIS
     function renderNetwork(network) {
         console.log("Rendering network with:", network);
         
@@ -652,61 +755,223 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Create SVG
         const width = document.getElementById('network-graph').clientWidth;
-        const height = 500;
+        const height = 530;
         
+        // Create tooltip div
+        const tooltip = d3.select('#network-graph')
+            .append('div')
+            .attr('class', 'node-tooltip');
+            
+        // Create legend
+        const legend = d3.select('#network-graph')
+            .append('div')
+            .attr('class', 'network-legend')
+            .html(`
+                <div style="font-weight: bold; margin-bottom: 8px;">Chú thích:</div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff4136;"></div>
+                    <div>Tài khoản rủi ro cao</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff851b;"></div>
+                    <div>Tài khoản đáng ngờ</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #0074d9;"></div>
+                    <div>Tài khoản bình thường</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: transparent; border: 2px dashed #ff4136;"></div>
+                    <div>Giao dịch gian lận</div>
+                </div>
+                <div style="font-size: 10px; color: #666; margin-top: 5px;">
+                    Kích thước nút tương ứng với điểm rủi ro
+                </div>
+            `);
+            
         const svg = d3.select('#network-graph')
             .append('svg')
             .attr('width', width)
             .attr('height', height);
+            
+        // Add background glow filter for highlighted nodes
+        const defs = svg.append('defs');
+        const filter = defs.append('filter')
+            .attr('id', 'glow');
+            
+        filter.append('feGaussianBlur')
+            .attr('stdDeviation', '3.5')
+            .attr('result', 'coloredBlur');
+            
+        const feMerge = filter.append('feMerge');
+        feMerge.append('feMergeNode')
+            .attr('in', 'coloredBlur');
+        feMerge.append('feMergeNode')
+            .attr('in', 'SourceGraphic');
         
         // Add zoom capability
         const g = svg.append('g');
         const zoom = d3.zoom()
-            .scaleExtent([0.1, 3])
+            .scaleExtent([0.1, 5])
             .on('zoom', (event) => {
                 g.attr('transform', event.transform);
+                // Hide tooltip on zoom
+                tooltip.style('display', 'none');
             });
         
         svg.call(zoom);
         
-        // Create simulation
+        // Apply initial zoom to fit the network better
+        svg.call(zoom.transform, d3.zoomIdentity.scale(0.8).translate(width / 5, height / 5));
+        
+        // Create simulation with improved physics
         const simulation = d3.forceSimulation(network.nodes)
-            .force('link', d3.forceLink(network.links).id(d => d.id).distance(100))
-            .force('charge', d3.forceManyBody().strength(-300))
-            .force('center', d3.forceCenter(width / 2, height / 2));
+            .force('link', d3.forceLink(network.links).id(d => d.id).distance(d => {
+                // Make fraud links shorter to cluster fraud nodes
+                return d.is_fraud ? 80 : 120;
+            }))
+            .force('charge', d3.forceManyBody().strength(d => {
+                // Higher repulsion for fraud nodes
+                return d.score > 0.7 ? -500 : -300;
+            }))
+            .force('center', d3.forceCenter(width / 2, height / 2))
+            .force('x', d3.forceX(width / 2).strength(0.05))
+            .force('y', d3.forceY(height / 2).strength(0.05))
+            .force('collision', d3.forceCollide().radius(d => 10 + (d.score || 0) * 10).strength(0.7));
+        
+        // Add highlighted links with glow for fraud transactions
+        const linkHighlight = g.append('g')
+            .attr('class', 'link-highlights')
+            .selectAll('line')
+            .data(network.links.filter(d => d.is_fraud))
+            .enter().append('line')
+            .attr('stroke', '#ff4136')
+            .attr('stroke-width', d => Math.sqrt(d.value || 1) * 1.5)
+            .attr('opacity', 0.2)
+            .attr('stroke-linecap', 'round');
         
         // Add links
         const link = g.append('g')
             .selectAll('line')
             .data(network.links)
             .enter().append('line')
-            .attr('stroke-width', d => Math.sqrt(d.value || 1))
-            .attr('stroke', d => d.is_fraud ? '#ff4136' : '#aaa');
-        
+            .attr('class', d => 'link ' + (d.is_fraud ? 'fraud' : 'normal'))
+            .attr('stroke-width', d => {
+                // Scale link width based on value but keep it reasonable
+                const baseWidth = Math.sqrt(d.value || 1) / 15;
+                return Math.max(0.5, Math.min(baseWidth, 3));
+            });
+            
+        // Add node halos for high fraud score nodes
+        const nodeHalo = g.append('g')
+            .selectAll('circle')
+            .data(network.nodes.filter(d => d.score > 0.7))
+            .enter().append('circle')
+            .attr('r', d => (5 + (d.score || 0) * 5) * 1.5)
+            .attr('fill', '#ff4136')
+            .attr('opacity', 0.2)
+            .attr('filter', 'url(#glow)');
+            
         // Add nodes
         const node = g.append('g')
             .selectAll('circle')
             .data(network.nodes)
             .enter().append('circle')
+            .attr('class', 'node')
             .attr('r', d => 5 + (d.score || 0) * 5)
             .attr('fill', d => {
                 const score = d.score || 0;
-                if (score > 0.7) return '#ff4136'; // Red
-                if (score > 0.5) return '#ff851b'; // Orange
-                return '#0074d9'; // Blue
+                if (score > 0.7) return '#ff4136'; // Red - Rủi ro cao
+                if (score > 0.5) return '#ff851b'; // Orange - Rủi ro trung bình
+                return '#0074d9'; // Blue - Bình thường
             })
+            .style('filter', d => d.score > 0.8 ? 'url(#glow)' : null)
             .call(d3.drag()
                 .on('start', dragstarted)
                 .on('drag', dragged)
                 .on('end', dragended));
+                
+        // Add labels for high risk nodes
+        const labels = g.append('g')
+            .selectAll('text')
+            .data(network.nodes.filter(d => d.score > 0.8))
+            .enter()
+            .append('text')
+            .text(d => d.id)
+            .attr('font-size', 9)
+            .attr('fill', '#fff')
+            .attr('text-anchor', 'middle')
+            .attr('dy', d => -(8 + (d.score || 0) * 4))
+            .attr('pointer-events', 'none')
+            .attr('text-shadow', '0 1px 2px rgba(0,0,0,0.9)')
+            .style('user-select', 'none');
         
-        // Add tooltips
-        node.append('title')
-            .text(d => `ID: ${d.id}\nScore: ${(d.score || 0).toFixed(2)}`);
-        
+        // Better tooltips with hover effects
+        node.on('mouseover', function(event, d) {
+                // Highlight connected nodes and links
+                const connectedNodes = new Set();
+                const nodeId = d.id;
+                
+                // Find all connected nodes
+                network.links.forEach(link => {
+                    if (link.source.id === nodeId || link.target.id === nodeId) {
+                        connectedNodes.add(typeof link.source === 'object' ? link.source.id : link.source);
+                        connectedNodes.add(typeof link.target === 'object' ? link.target.id : link.target);
+                    }
+                });
+                
+                // Dim unconnected nodes
+                node.style('opacity', n => connectedNodes.has(n.id) ? 1 : 0.3);
+                nodeHalo.style('opacity', n => connectedNodes.has(n.id) ? 0.3 : 0.1);
+                
+                // Highlight connected links
+                link.style('opacity', l => 
+                    (l.source.id === nodeId || l.target.id === nodeId) ? 1 : 0.1)
+                    .style('stroke-width', l => 
+                        (l.source.id === nodeId || l.target.id === nodeId) 
+                        ? (l.is_fraud ? 2 : 1.5) : (Math.sqrt(l.value || 1) / 15));
+                
+                // Show tooltip with more details
+                tooltip
+                    .style('display', 'block')
+                    .style('left', (event.pageX - document.getElementById('network-graph').getBoundingClientRect().left + 10) + 'px')
+                    .style('top', (event.pageY - document.getElementById('network-graph').getBoundingClientRect().top - 30) + 'px')
+                    .html(`<div style="font-weight:bold;border-bottom:1px solid #aaa;margin-bottom:4px">
+                             Tài khoản: ${d.id}
+                           </div>
+                           <div>Điểm gian lận: <span style="font-weight:bold;color:${d.score > 0.7 ? '#ff4136' : d.score > 0.5 ? '#ff851b' : '#0074d9'}">
+                             ${(d.score || 0).toFixed(2)}
+                           </span></div>
+                           <div>Phân loại: <span style="font-weight:bold">
+                             ${d.score > 0.7 ? 'RỦI RO CAO' : d.score > 0.5 ? 'ĐÁNG NGỜ' : 'BÌNH THƯỜNG'}
+                           </span></div>
+                           <div style="font-style:italic;margin-top:4px;font-size:10px">
+                             ${connectedNodes.size - 1} kết nối
+                           </div>`);
+            })
+            .on('mouseout', function() {
+                // Restore all nodes and links
+                node.style('opacity', 1);
+                nodeHalo.style('opacity', 0.2);
+                link.style('opacity', 0.6)
+                    .style('stroke-width', d => {
+                        const baseWidth = Math.sqrt(d.value || 1) / 15;
+                        return Math.max(0.5, Math.min(baseWidth, 3));
+                    });
+                
+                // Hide tooltip
+                tooltip.style('display', 'none');
+            });
+
         // Update positions
         simulation.on('tick', () => {
             link
+                .attr('x1', d => d.source.x)
+                .attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x)
+                .attr('y2', d => d.target.y);
+                
+            linkHighlight
                 .attr('x1', d => d.source.x)
                 .attr('y1', d => d.source.y)
                 .attr('x2', d => d.target.x)
@@ -715,6 +980,14 @@ document.addEventListener('DOMContentLoaded', function() {
             node
                 .attr('cx', d => d.x)
                 .attr('cy', d => d.y);
+                
+            nodeHalo
+                .attr('cx', d => d.x)
+                .attr('cy', d => d.y);
+                
+            labels
+                .attr('x', d => d.x)
+                .attr('y', d => d.y);
         });
         
         // Connect zoom controls
@@ -727,7 +1000,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         document.getElementById('resetZoom').addEventListener('click', function() {
-            svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+            svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.scale(0.8).translate(width / 5, height / 5));
         });
         
         // Drag functions

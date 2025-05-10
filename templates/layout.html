@@ -43,15 +43,144 @@
         {% block content %}{% endblock %}
     </div>
 
+    <!-- Modal xem chi tiết giao dịch gian lận -->
+    <div class="modal fade" id="fraudTransactionModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-exclamation-triangle text-danger me-2"></i>
+                        Chi tiết giao dịch gian lận
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Phần loading -->
+                    <div id="fraud-transactions-loading" class="text-center py-5">
+                        <div class="spinner-border text-primary mb-3">
+                            <span class="visually-hidden">Đang tải...</span>
+                        </div>
+                        <p class="lead mb-0">Đang tải dữ liệu giao dịch...</p>
+                    </div>
+
+                    <!-- Phần nội dung -->                    <div id="fraud-transactions-content" class="d-none">
+                        <div class="row mb-4">
+                            <div class="col-md-8">
+                                <div class="card">
+                                    <div class="card-body" style="height: 300px">
+                                        <canvas id="fraudTypeChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="fraud-stats-card">
+                                    <h6 class="card-title">Thống kê và Bộ lọc</h6>
+                                    
+                                    <!-- Transaction Type Filter -->
+                                    <div class="mb-3">
+                                        <label class="form-label">Loại giao dịch</label>
+                                        <select id="fraudTransactionType" class="form-select form-select-sm">
+                                            <option value="all">Tất cả</option>
+                                            <option value="transfer">Chuyển khoản</option>
+                                            <option value="payment">Thanh toán</option>
+                                            <option value="cash_out">Rút tiền</option>
+                                            <option value="cash_in">Nạp tiền</option>
+                                            <option value="debit">Ghi nợ</option>
+                                            <option value="other">Khác</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Amount Range Filter -->
+                                    <div class="mb-3">
+                                        <label class="form-label">Khoảng số tiền</label>
+                                        <div class="row g-2">
+                                            <div class="col-6">
+                                                <input type="number" id="fraudMinAmount" 
+                                                       class="form-control form-control-sm" 
+                                                       placeholder="Tối thiểu">
+                                            </div>
+                                            <div class="col-6">
+                                                <input type="number" id="fraudMaxAmount" 
+                                                       class="form-control form-control-sm" 
+                                                       placeholder="Tối đa">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Risk Score Filter -->
+                                    <div class="mb-3">
+                                        <label class="form-label">Điểm rủi ro tối thiểu</label>
+                                        <input type="range" class="form-range" id="fraudMinScore" 
+                                               min="0" max="1" step="0.1" value="0">
+                                        <div class="d-flex justify-content-between">
+                                            <small>0.0</small>
+                                            <small>0.5</small>
+                                            <small>1.0</small>
+                                        </div>
+                                    </div>
+
+                                    <!-- Search Filter -->
+                                    <div class="mb-3">
+                                        <label class="form-label">Tìm kiếm</label>
+                                        <input type="text" id="fraudSearch" 
+                                               class="form-control form-control-sm" 
+                                               placeholder="Tìm theo ID hoặc loại...">
+                                    </div>
+
+                                    <!-- Stats -->
+                                    <div class="stats">
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span>Tổng số giao dịch:</span>
+                                            <strong id="fraudTotalTransactions">0</strong>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span>Tổng giá trị:</span>
+                                            <strong id="fraudTotalAmount">0 ₫</strong>
+                                        </div>
+                                        <div class="d-flex justify-content-between">
+                                            <span>Điểm trung bình:</span>
+                                            <strong id="fraudAvgScore">0.00</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Transactions Table -->
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th data-sort="source">Người gửi</th>
+                                        <th data-sort="target">Người nhận</th>
+                                        <th data-sort="amount">Số tiền</th>
+                                        <th data-sort="type">Loại</th>
+                                        <th data-sort="score">Điểm rủi ro</th>
+                                        <th>Cộng đồng</th>
+                                        <th data-sort="timestamp">Thời gian</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fraudTransactionsTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer mt-auto py-3 bg-light">
         <div class="container text-center">
             <span class="text-muted">© 2024 Phát hiện Gian lận | Neo4j + Python</span>
         </div>
-    </footer>
-
+    </footer>    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/community_viewer.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/fraud_transactions.js') }}"></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

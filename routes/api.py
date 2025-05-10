@@ -50,7 +50,6 @@ def get_fraud_stats():
                 ORDER BY count DESC
                 LIMIT 5
             """).data()
-            
             communities = session.run("""
                 MATCH (a:Account)
                 WHERE a.community IS NOT NULL AND a.fraud_score IS NOT NULL
@@ -69,8 +68,34 @@ def get_fraud_stats():
                     high_risk_count,
                     1.0 * high_risk_count / count AS risk_ratio
                 ORDER BY risk_ratio DESC, count DESC
-                LIMIT 8
+                LIMIT 10
             """, fraud_threshold=FRAUD_SCORE_THRESHOLD).data()
+            
+            # Lấy thêm thống kê phân phối cộng đồng
+            community_distribution = session.run("""
+                MATCH (a:Account)
+                WHERE a.community IS NOT NULL
+                
+                WITH a.community AS community, COUNT(a) AS size
+                
+                RETURN 
+                    CASE 
+                        WHEN size = 1 THEN 'Single'
+                        WHEN size >= 2 AND size <= 5 THEN 'Small'
+                        WHEN size > 5 AND size <= 20 THEN 'Medium'
+                        WHEN size > 20 AND size <= 100 THEN 'Large'
+                        ELSE 'Very Large'
+                    END AS size_category,
+                    COUNT(DISTINCT community) AS community_count
+                ORDER BY 
+                    CASE size_category
+                        WHEN 'Single' THEN 1
+                        WHEN 'Small' THEN 2
+                        WHEN 'Medium' THEN 3
+                        WHEN 'Large' THEN 4
+                        ELSE 5
+                    END
+            """).data()
             
             score_distribution = session.run("""
                 MATCH (a:Account)
@@ -102,6 +127,7 @@ def get_fraud_stats():
             return jsonify({
                 "fraud_by_type": fraud_by_type,
                 "communities": communities,
+                "community_distribution": community_distribution,
                 "score_distribution": score_distribution,
                 "transaction_cycles": transaction_cycles
             })
@@ -111,6 +137,7 @@ def get_fraud_stats():
             "error": str(e),
             "fraud_by_type": [],
             "communities": [],
+            "community_distribution": [],
             "score_distribution": None,
             "transaction_cycles": []
         })
@@ -158,14 +185,14 @@ def get_metrics():
                     count(CASE WHEN a.fraud_score > $suspicious_threshold AND a.fraud_score <= $fraud_threshold THEN 1 END) AS medium_risk,
                     count(CASE WHEN a.fraud_score > 0.3 AND a.fraud_score <= $suspicious_threshold THEN 1 END) AS low_risk,
                     count(CASE WHEN a.fraud_score <= 0.3 THEN 1 END) AS very_low_risk
-            """, 
-                fraud_threshold=FRAUD_SCORE_THRESHOLD,
+            """,                fraud_threshold=FRAUD_SCORE_THRESHOLD,
                 suspicious_threshold=SUSPICIOUS_THRESHOLD).single()
-
+                
             communities = session.run("""
                 MATCH (a:Account)
                 WHERE a.community IS NOT NULL 
                 WITH a.community AS community, count(a) AS size, avg(a.fraud_score) AS avg_score
+                WHERE size >= 2  // Chỉ đếm cộng đồng có ít nhất 2 tài khoản
                 RETURN count(DISTINCT community) AS count,
                        count(CASE WHEN avg_score > $fraud_threshold THEN 1 END) AS high_risk_communities
             """, fraud_threshold=FRAUD_SCORE_THRESHOLD).single()
@@ -341,15 +368,232 @@ def get_network():
 
                 # Add links
                 for rel in relationships:
-                    if rel.start_node["id"] in node_map and rel.end_node["id"] in node_map:
-                        network["links"].append({
-                            "source": rel.start_node["id"],
-                            "target": rel.end_node["id"],
-                            "amount": rel["amount"],
-                            "type": rel.get("type", "unknown")
-                        })
-
-            return jsonify(network)
+                    if rel and rel.start_node and rel.end_node and "id" in rel.start_node and "id" in rel.end_node:
+                        if rel.start_node["id"] in node_map and rel.end_node["id"] in node_map:
+                            network["links"].append({
+                                "source": rel.start_node["id"],
+                                "target": rel.end_node["id"],
+                                "value": rel.get("amount", 1),
+                                "is_fraud": rel.get("is_fraud", 0) == 1
+                            })
+            
+            print(f"Network data prepared: {len(network['nodes'])} nodes, {len(network['links'])} links")
+            return jsonify({"network": network})
+    except Exception as e:
+        print(f"Network API error: {str(e)}")
+        return jsonify({"error": str(e), "network": {"nodes": [], "links": []}})
     except Exception as e:
         print(f"Network API error: {str(e)}")
         return jsonify({"error": str(e), "nodes": [], "links": []})
+
+@api_bp.route('/community/<community_id>')
+def get_community_details(community_id):
+    try:
+        print(f"API: Đang xử lý yêu cầu lấy chi tiết cộng đồng ID: {community_id}")
+        with detector.driver.session() as session:
+            # Lấy thông tin tổng quan về cộng đồng
+            community_overview = session.run("""
+                MATCH (a:Account)
+                WHERE a.community = $community_id
+                
+                WITH count(a) AS total_accounts,
+                     avg(a.fraud_score) AS avg_score,
+                     count(CASE WHEN a.fraud_score > $fraud_threshold THEN 1 END) AS high_risk_accounts
+                
+                RETURN 
+                    total_accounts,
+                    avg_score,
+                    high_risk_accounts,
+                    1.0 * high_risk_accounts / total_accounts AS risk_ratio
+            """, community_id=community_id, fraud_threshold=FRAUD_SCORE_THRESHOLD).single()
+            
+            print(f"API: Kết quả tổng quan cộng đồng ID {community_id}: {community_overview}")
+            
+            # Lấy danh sách các tài khoản trong cộng đồng
+            community_accounts = session.run("""
+                MATCH (a:Account)
+                WHERE a.community = $community_id
+                
+                OPTIONAL MATCH (a)-[out:SENT]->()
+                WITH a, count(out) AS out_count, sum(out.amount) AS out_amount
+                
+                OPTIONAL MATCH ()-[in:SENT]->(a)
+                WITH a, out_count, out_amount, count(in) AS in_count, sum(in.amount) AS in_amount
+                
+                OPTIONAL MATCH path = (a)-[:SENT*2..3]->(a)
+                WITH a, out_count, out_amount, in_count, in_amount, 
+                     count(path) > 0 AS has_cycle
+                
+                RETURN 
+                    a.id AS id, 
+                    a.fraud_score AS score,
+                    COALESCE(a.pagerank_score, 0) AS pagerank,
+                    COALESCE(a.tx_imbalance, 0) AS imbalance,
+                    CASE WHEN has_cycle THEN 1 ELSE 0 END AS in_cycle,
+                    out_count AS sent_count,
+                    in_count AS received_count,
+                    out_amount AS sent_amount,
+                    in_amount AS received_amount,
+                    abs(out_amount - in_amount) AS imbalance_amount
+                ORDER BY score DESC
+            """, community_id=community_id).data()
+            
+            print(f"API: Tìm thấy {len(community_accounts)} tài khoản trong cộng đồng {community_id}")
+            
+            # Lấy thông tin về các giao dịch trong cộng đồng
+            community_transactions = session.run("""
+                MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
+                WHERE sender.community = $community_id AND receiver.community = $community_id
+                
+                RETURN 
+                    sender.id AS source,
+                    receiver.id AS target,
+                    tx.amount AS amount,
+                    COALESCE(tx.is_fraud, 0) AS is_fraud,
+                    COALESCE(tx.type, 'TRANSFER') AS type,
+                    sender.fraud_score > $fraud_threshold OR receiver.fraud_score > $fraud_threshold AS high_risk
+                ORDER BY amount DESC
+                LIMIT 100  // Giới hạn số giao dịch để tránh quá tải
+            """, community_id=community_id, fraud_threshold=FRAUD_SCORE_THRESHOLD).data()
+            
+            print(f"API: Tìm thấy {len(community_transactions)} giao dịch nội bộ trong cộng đồng {community_id}")
+            
+            # Lấy thông tin về mối quan hệ với các cộng đồng khác
+            related_communities = session.run("""
+                MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
+                WHERE 
+                    (sender.community = $community_id AND receiver.community <> $community_id)
+                    OR (sender.community <> $community_id AND receiver.community = $community_id)
+                    
+                WITH 
+                    CASE WHEN sender.community = $community_id THEN receiver.community ELSE sender.community END AS related_community,
+                    count(tx) AS transaction_count,
+                    sum(tx.amount) AS total_amount
+                
+                MATCH (a:Account)
+                WHERE a.community = related_community
+                
+                WITH related_community, transaction_count, total_amount, count(a) AS account_count, avg(a.fraud_score) AS avg_score
+                
+                RETURN 
+                    related_community AS id,
+                    transaction_count,
+                    total_amount,
+                    account_count,
+                    avg_score
+                ORDER BY transaction_count DESC
+                LIMIT 5
+            """, community_id=community_id).data()
+            
+            print(f"API: Tìm thấy {len(related_communities)} cộng đồng liên quan đến cộng đồng {community_id}")
+            
+            response_data = {
+                "overview": community_overview if community_overview else {},
+                "accounts": community_accounts,
+                "transactions": community_transactions,
+                "related_communities": related_communities
+            }
+            
+            print(f"API: Trả về dữ liệu chi tiết cộng đồng {community_id}")
+            return jsonify(response_data)
+    except Exception as e:
+        print(f"Community details API error for community {community_id}: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "overview": {},
+            "accounts": [],
+            "transactions": [],
+            "related_communities": []
+        })
+
+@api_bp.route('/communities')
+def get_all_communities():
+    try:
+        with detector.driver.session() as session:
+            # Lấy danh sách tất cả các cộng đồng với thông tin tóm tắt
+            all_communities = session.run("""
+                MATCH (a:Account)
+                WHERE a.community IS NOT NULL
+                
+                WITH a.community AS community_id, COUNT(a) AS account_count, AVG(a.fraud_score) AS avg_score
+                WHERE account_count >= 2  // Chỉ hiển thị cộng đồng có ít nhất 2 tài khoản
+                
+                WITH 
+                    community_id, 
+                    account_count, 
+                    avg_score,
+                    count(CASE WHEN avg_score > $fraud_threshold THEN 1 END) AS high_risk,
+                    1.0 * count(CASE WHEN avg_score > $fraud_threshold THEN 1 END) / account_count AS risk_ratio
+                
+                RETURN 
+                    community_id AS id,
+                    account_count AS size,
+                    avg_score,
+                    CASE
+                        WHEN account_count <= 3 THEN 'small'
+                        WHEN account_count <= 10 THEN 'medium'
+                        ELSE 'large'
+                    END AS size_category,
+                    CASE
+                        WHEN avg_score > 0.7 THEN 'high'
+                        WHEN avg_score > 0.5 THEN 'medium'
+                        ELSE 'low'
+                    END AS risk_level,
+                    risk_ratio
+                ORDER BY risk_ratio DESC, account_count DESC
+                LIMIT 200
+            """, fraud_threshold=FRAUD_SCORE_THRESHOLD).data()
+            
+            return jsonify({
+                "communities": all_communities
+            })
+    except Exception as e:
+        print(f"All communities API error: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "communities": []
+        })
+
+@api_bp.route('/fraud-transactions/<transaction_type>')
+def get_fraud_transactions(transaction_type):
+    try:
+        with detector.driver.session() as session:
+            transactions = session.run("""
+                MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
+                WHERE (sender.fraud_score > $fraud_threshold OR receiver.fraud_score > $fraud_threshold)
+                AND (CASE 
+                    WHEN $type = 'all' THEN true
+                    WHEN tx.type IS NULL AND $type = 'other' THEN true
+                    ELSE tx.type = $type 
+                END)
+                
+                RETURN 
+                    sender.id AS source,
+                    sender.fraud_score AS source_score,
+                    receiver.id AS target,
+                    receiver.fraud_score AS target_score,
+                    tx.amount AS amount,
+                    tx.timestamp AS timestamp,
+                    COALESCE(tx.type, 'Khác') AS type,
+                    CASE 
+                        WHEN tx.is_fraud = 1 THEN true
+                        ELSE false
+                    END AS is_fraud,
+                    sender.community AS source_community,
+                    receiver.community AS target_community
+                ORDER BY tx.amount DESC
+                LIMIT 100
+            """, type=transaction_type, fraud_threshold=FRAUD_SCORE_THRESHOLD).data()
+            
+            return jsonify({
+                "transactions": transactions,
+                "total": len(transactions)
+            })
+            
+    except Exception as e:
+        print(f"Fraud transactions API error: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "transactions": [],
+            "total": 0
+        })

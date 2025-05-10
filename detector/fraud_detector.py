@@ -1,4 +1,3 @@
-# filepath: d:\Fraud-Detection\fraud_detector.py
 from detector.database_manager import DatabaseManager
 from detector.data_importer import DataImporter
 from analysis.account_analyzer import AccountAnalyzer
@@ -89,9 +88,7 @@ class FraudDetector:
                         print("  Đã tìm thấy projected graph trong danh sách, đang xóa...")
                         session.run("CALL gds.graph.drop('fraud_graph', false)")
                 except Exception as e:
-                    print(f"  Lỗi khi kiểm tra projected graph: {e}")
-                    
-                # 1. Tạo projected graph (chỉ dùng amount, không dùng is_fraud)
+                    print(f"  Lỗi khi kiểm tra projected graph: {e}")                # 1. Tạo projected graph ban đầu (chỉ dùng amount, không dùng is_fraud)
                 print("🔍 Đang tạo projected graph...")
                 session.run("""
                     CALL gds.graph.project(
@@ -123,14 +120,76 @@ class FraudDetector:
                     })
                 """)
                 
-                # 4. Louvain - Phát hiện cộng đồng
+                # 4. Louvain - Phát hiện cộng đồng (không dùng seedProperty vì gây lỗi)
                 print("🔍 Đang phát hiện cộng đồng với Louvain...")
                 session.run("""
                     CALL gds.louvain.write('fraud_graph', {
-                        writeProperty: 'community'
+                        writeProperty: 'community',
+                        maxLevels: 10,           // Giới hạn số level của thuật toán
+                        maxIterations: 20,       // Số lần lặp tối đa
+                        tolerance: 0.0001,       // Giá trị ngưỡng để hội tụ cao hơn
+                        includeIntermediateCommunities: false  // Không lưu các cộng đồng trung gian
                     })
                 """)
                 
+                # Thống kê các cộng đồng phát hiện được
+                community_stats = session.run("""
+                    MATCH (a:Account)
+                    WHERE a.community IS NOT NULL
+                    WITH a.community AS community, count(*) AS size
+                    RETURN 
+                        count(*) AS total_communities,
+                        sum(CASE WHEN size = 1 THEN 1 ELSE 0 END) AS single_node_communities,
+                        sum(CASE WHEN size >= 2 AND size <= 5 THEN 1 ELSE 0 END) AS small_communities,
+                        sum(CASE WHEN size > 5 AND size <= 20 THEN 1 ELSE 0 END) AS medium_communities,
+                        sum(CASE WHEN size > 20 THEN 1 ELSE 0 END) AS large_communities,
+                        avg(size) AS avg_community_size,
+                        max(size) AS max_community_size
+                """).single()
+                
+                if community_stats:
+                    print(f"  Tổng số cộng đồng: {community_stats['total_communities']}")
+                    print(f"  Cộng đồng một nút: {community_stats['single_node_communities']} " + 
+                          f"({community_stats['single_node_communities']/community_stats['total_communities']*100:.1f}%)")
+                    print(f"  Cộng đồng nhỏ (2-5 nút): {community_stats['small_communities']}")
+                    print(f"  Cộng đồng trung bình (6-20 nút): {community_stats['medium_communities']}")
+                    print(f"  Cộng đồng lớn (>20 nút): {community_stats['large_communities']}")
+                    print(f"  Kích thước trung bình: {community_stats['avg_community_size']:.2f}")
+                    print(f"  Kích thước lớn nhất: {community_stats['max_community_size']}")
+                    
+                    # Nếu có quá nhiều cộng đồng đơn lẻ, thực hiện gom nhóm lại
+                    single_percent = community_stats['single_node_communities']/community_stats['total_communities']
+                    if single_percent > 0.8:  # Nếu hơn 80% là cộng đồng một nút
+                        print("  Đang gom nhóm các cộng đồng nhỏ...")
+                        # Gán cộng đồng mới dựa trên pagerank_score (chia thành 5 nhóm)
+                        session.run("""
+                            MATCH (a:Account)
+                            WHERE a.community IS NOT NULL AND (a)-[:SENT]->() OR ()-[:SENT]->(a)
+                            WITH a, a.pagerank_score AS score
+                            ORDER BY score DESC
+                            WITH collect(a) AS all_accounts, count(*) AS total
+                            WITH all_accounts, total, 
+                                 total / 5 AS group_size
+                            UNWIND range(0, 4) as group_id
+                            WITH all_accounts, group_id, group_size
+                            WITH all_accounts[group_id * group_size..(group_id + 1) * group_size] AS accounts, group_id
+                            UNWIND accounts AS account
+                            SET account.consolidated_community = group_id
+                            RETURN count(*) as grouped
+                        """)
+                        # Xử lý các nút không có giao dịch nào
+                        session.run("""
+                            MATCH (a:Account)
+                            WHERE NOT EXISTS(a.consolidated_community)
+                            SET a.consolidated_community = 5
+                        """)
+                        # Sử dụng consolidated_community thay vì community
+                        session.run("""
+                            MATCH (a:Account)
+                            SET a.community = a.consolidated_community
+                            REMOVE a.consolidated_community
+                        """)
+                        
                 # 5. Node Similarity
                 print("🔍 Đang tính Node Similarity...")
                 session.run("""
