@@ -4,7 +4,7 @@ import os
 import time
 from . import views_bp
 from config import FRAUD_SCORE_THRESHOLD
-from fraud_detector import FraudDetector
+from detector.fraud_detector import FraudDetector
 
 detector = FraudDetector()
 

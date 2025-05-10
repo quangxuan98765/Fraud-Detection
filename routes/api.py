@@ -1,6 +1,6 @@
 from flask import jsonify
 from . import api_bp
-from fraud_detector import FraudDetector
+from detector.fraud_detector import FraudDetector
 from config import FRAUD_SCORE_THRESHOLD, SUSPICIOUS_THRESHOLD
 
 detector = FraudDetector()
