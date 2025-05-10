@@ -129,42 +129,104 @@ def get_status():
 @app.route('/api/fraud-stats')
 def get_fraud_stats():
     try:
-        with detector.driver.session() as session:
-            # Thống kê giao dịch có liên quan đến tài khoản gian lận (dựa trên fraud_score)
+        with detector.driver.session() as session:            # Thống kê giao dịch đơn giản hóa
             fraud_by_type = session.run("""
+                // Lấy tất cả giao dịch liên quan đến tài khoản đáng ngờ
                 MATCH (sender:Account)-[r:SENT]->(receiver:Account)
-                WHERE sender.fraud_score > 0.7 OR receiver.fraud_score > 0.7
-                RETURN r.type AS type, count(r) AS count
+                WHERE sender.fraud_score > 0.5 OR receiver.fraud_score > 0.5
+                
+                WITH CASE
+                    WHEN r.type IS NULL THEN 'Khác'
+                    ELSE r.type 
+                END AS type,
+                COUNT(r) as count,
+                SUM(r.amount) as total_amount
+                
+                RETURN type, count, total_amount
                 ORDER BY count DESC
+                LIMIT 5
             """).data()
             
-            # Thống kê cộng đồng có nguy cơ cao
+            # Log kết quả để debug
+            print("Fraud by type data:", fraud_by_type)
+            
+            # Nếu không có kết quả, thử lấy tất cả các giao dịch
+            if not fraud_by_type:
+                fraud_by_type = session.run("""
+                    MATCH (sender:Account)-[r:SENT]->(receiver:Account)
+                    
+                    // Nhóm theo loại giao dịch
+                    WITH r.type AS type, 
+                         COUNT(r) AS count,
+                         SUM(r.amount) AS total_amount,
+                         AVG(COALESCE(sender.fraud_score, 0) + COALESCE(receiver.fraud_score, 0)) / 2 AS avg_score
+                    
+                    RETURN type, count, total_amount, avg_score
+                    ORDER BY count DESC
+                    LIMIT 5
+                """).data()
+              # Thống kê cộng đồng có nguy cơ cao (đơn giản hóa và tối ưu)
             communities = session.run("""
+                // Nhóm theo cộng đồng và lấy các chỉ số thống kê quan trọng
                 MATCH (a:Account)
-                WHERE a.community IS NOT NULL AND a.fraud_score > 0.6
-                WITH a.community AS community, count(a) AS count, avg(a.fraud_score) AS avg_score
-                WHERE count > 5
-                RETURN community, count, avg_score
-                ORDER BY avg_score DESC, count DESC
-                LIMIT 10
+                WHERE a.community IS NOT NULL AND a.fraud_score IS NOT NULL
+                
+                WITH a.community AS community, 
+                     COUNT(a) AS count, 
+                     AVG(a.fraud_score) AS avg_score,
+                     COUNT(CASE WHEN a.fraud_score > 0.6 THEN 1 END) AS high_risk_count
+                
+                // Chỉ lấy các cộng đồng có ý nghĩa
+                WHERE count >= 3 AND high_risk_count > 0
+                
+                RETURN 
+                    community, 
+                    count, 
+                    avg_score,
+                    high_risk_count,
+                    1.0 * high_risk_count / count AS risk_ratio
+                ORDER BY risk_ratio DESC, count DESC
+                LIMIT 8
             """).data()
             
-            # Thống kê phân bố điểm gian lận
+            # Log kết quả để debug
+            print("Communities data:", communities)
+              # Thống kê phân bố điểm gian lận (chi tiết hơn)
             score_distribution = session.run("""
                 MATCH (a:Account)
                 WHERE a.fraud_score IS NOT NULL
                 RETURN 
-                    count(CASE WHEN a.fraud_score > 0.9 THEN 1 END) AS very_high,
-                    count(CASE WHEN a.fraud_score > 0.7 AND a.fraud_score <= 0.9 THEN 1 END) AS high,
-                    count(CASE WHEN a.fraud_score > 0.5 AND a.fraud_score <= 0.7 THEN 1 END) AS medium,
-                    count(CASE WHEN a.fraud_score > 0.3 AND a.fraud_score <= 0.5 THEN 1 END) AS low,
-                    count(CASE WHEN a.fraud_score <= 0.3 THEN 1 END) AS very_low
+                    COUNT(CASE WHEN a.fraud_score > 0.9 THEN 1 END) AS very_high,
+                    COUNT(CASE WHEN a.fraud_score > 0.7 AND a.fraud_score <= 0.9 THEN 1 END) AS high,
+                    COUNT(CASE WHEN a.fraud_score > 0.5 AND a.fraud_score <= 0.7 THEN 1 END) AS medium,
+                    COUNT(CASE WHEN a.fraud_score > 0.3 AND a.fraud_score <= 0.5 THEN 1 END) AS low,
+                    COUNT(CASE WHEN a.fraud_score > 0.1 AND a.fraud_score <= 0.3 THEN 1 END) AS very_low,
+                    COUNT(CASE WHEN a.fraud_score <= 0.1 THEN 1 END) AS negligible,
+                    AVG(a.fraud_score) AS avg_score
             """).single()
+              # Thống kê về chu trình giao dịch - đơn giản hóa truy vấn
+            transaction_cycles = session.run("""
+                // Tìm các chu trình giao dịch ngắn (2-4 bước)
+                MATCH path = (a:Account)-[:SENT*2..4]->(a)
+                
+                // Tính toán thông tin về chu trình
+                WITH SIZE(nodes(path)) AS cycle_length,
+                     COUNT(DISTINCT a) AS unique_accounts,
+                     COUNT(path) AS cycle_count
+                
+                // Trả về kết quả được sắp xếp
+                RETURN 
+                    cycle_length,
+                    cycle_count,
+                    unique_accounts
+                ORDER BY cycle_length
+            """).data()
             
             return jsonify({
                 "fraud_by_type": fraud_by_type,
                 "communities": communities,
-                "score_distribution": score_distribution
+                "score_distribution": score_distribution,
+                "transaction_cycles": transaction_cycles
             })
     except Exception as e:
         print(f"Fraud-stats API error: {str(e)}")
@@ -172,92 +234,80 @@ def get_fraud_stats():
             "error": str(e),
             "fraud_by_type": [],
             "communities": [],
-            "score_distribution": {"very_high": 0, "high": 0, "medium": 0, "low": 0, "very_low": 0}
+            "score_distribution": {"very_high": 0, "high": 0, "medium": 0, "low": 0, "very_low": 0, "negligible": 0},
+            "transaction_cycles": []
         })
 
 @app.route('/api/metrics')
 def get_metrics():
     try:
         with detector.driver.session() as session:
-            # Query database statistics
+            # Truy vấn tối ưu để lấy thống kê
             basic_metrics = session.run("""
+                // Đếm số lượng tài khoản và giao dịch - đơn giản và nhanh
                 MATCH (a:Account)
                 WITH count(a) AS total_accounts
                 
                 MATCH ()-[r:SENT]->() 
                 WITH total_accounts, count(r) AS total_transactions
                 
-                // Count fraudulent accounts with variable thresholds
-                OPTIONAL MATCH (f:Account)
-                WHERE 
-                // Higher threshold for high PageRank accounts
-                (f.pagerank_score > 0.75 AND f.fraud_score > 0.50) OR
-                // Higher threshold for accounts with similar transaction patterns
-                (f.similarity_score > 0.70 AND f.fraud_score > 0.45) OR
-                // Regular threshold
-                (f.fraud_score > 0.60)
+                // Đếm tài khoản gian lận với các cách tiếp cận khác nhau
+                MATCH (f:Account)
+                WHERE f.fraud_score > 0.6
                 
-                WITH total_accounts, total_transactions, collect(f) AS fraud_accounts
+                WITH total_accounts, total_transactions, count(f) AS detected_fraud_accounts
                 
-                // Find large transactions separately
-                OPTIONAL MATCH (a:Account)-[r:SENT]->(b:Account)
-                WHERE r.amount > 40000 AND a.fraud_score > 0.5
-                
-                WITH total_accounts, total_transactions, 
-                    fraud_accounts, collect(DISTINCT a) AS high_tx_accounts, 
-                    collect(DISTINCT b) AS receiving_accounts
-                
-                // Combine all suspicious accounts
-                WITH total_accounts, total_transactions,
-                    fraud_accounts + high_tx_accounts + receiving_accounts AS combined_accounts
-                
-                // Unwind and limit to reduce false positives
-                UNWIND combined_accounts AS susp
-                WITH total_accounts, total_transactions, susp
-                WHERE susp IS NOT NULL AND susp.fraud_score > 0.517
-                ORDER BY susp.fraud_score DESC
-                
-                WITH total_accounts, total_transactions, collect(susp) AS limited_suspicious
-                
-                // Count actual fraudulent transactions (for evaluation)
+                // Đếm các giao dịch được đánh dấu gian lận (từ dữ liệu đào tạo)
                 MATCH ()-[r:SENT {is_fraud: 1}]->()
-                RETURN total_accounts, total_transactions, 
-                    size(limited_suspicious) AS detected_fraud_accounts,
-                    count(r) AS actual_fraud_transactions
+                
+                RETURN total_accounts, 
+                       total_transactions, 
+                       detected_fraud_accounts,
+                       count(r) AS actual_fraud_transactions
             """).single()
             
-            # Get fraud level distribution
+            # Phân phối điểm gian lận - giúp hiểu rõ hơn về phân bố
             fraud_levels = session.run("""
                 MATCH (a:Account)
                 WHERE a.fraud_score IS NOT NULL
                 RETURN 
-                    count(CASE WHEN a.fraud_score > 0.7 THEN 1 END) AS high_risk,
-                    count(CASE WHEN a.fraud_score > 0.5 AND a.fraud_score <= 0.7 THEN 1 END) AS medium_risk,
-                    count(CASE WHEN a.fraud_score > 0.3 AND a.fraud_score <= 0.5 THEN 1 END) AS low_risk
+                    count(CASE WHEN a.fraud_score > 0.8 THEN 1 END) AS very_high_risk,
+                    count(CASE WHEN a.fraud_score > 0.6 AND a.fraud_score <= 0.8 THEN 1 END) AS high_risk,
+                    count(CASE WHEN a.fraud_score > 0.4 AND a.fraud_score <= 0.6 THEN 1 END) AS medium_risk,
+                    count(CASE WHEN a.fraud_score > 0.2 AND a.fraud_score <= 0.4 THEN 1 END) AS low_risk,
+                    count(CASE WHEN a.fraud_score <= 0.2 THEN 1 END) AS very_low_risk
             """).single()
             
-            # Count communities
+            # Thống kê về cộng đồng
             communities = session.run("""
                 MATCH (a:Account)
                 WHERE a.community IS NOT NULL 
-                WITH a.community AS community
-                RETURN count(DISTINCT community) AS count
+                WITH a.community AS community, count(a) AS size, avg(a.fraud_score) AS avg_score
+                RETURN count(DISTINCT community) AS count,
+                       count(CASE WHEN avg_score > 0.6 THEN 1 END) AS high_risk_communities
             """).single()
             
-            # Create response data
+            # Thống kê các chu trình giao dịch - điểm đáng ngờ đặc biệt
+            cycles = session.run("""
+                MATCH path = (a:Account)-[:SENT*2..4]->(a)
+                RETURN count(DISTINCT a) AS accounts_in_cycles
+            """).single()
+            
+            # Tạo dữ liệu phản hồi
             metrics_data = {
                 "accounts": basic_metrics.get("total_accounts", 0) if basic_metrics else 0,
                 "transactions": basic_metrics.get("total_transactions", 0) if basic_metrics else 0,
                 "fraud": basic_metrics.get("detected_fraud_accounts", 0) if basic_metrics else 0,
                 "actual_fraud": basic_metrics.get("actual_fraud_transactions", 0) if basic_metrics else 0,
+                "very_high_risk": fraud_levels.get("very_high_risk", 0) if fraud_levels else 0,
                 "high_risk": fraud_levels.get("high_risk", 0) if fraud_levels else 0,
                 "medium_risk": fraud_levels.get("medium_risk", 0) if fraud_levels else 0,
                 "low_risk": fraud_levels.get("low_risk", 0) if fraud_levels else 0,
-                "communities": communities.get("count", 0) if communities else 0
+                "very_low_risk": fraud_levels.get("very_low_risk", 0) if fraud_levels else 0,
+                "communities": communities.get("count", 0) if communities else 0,
+                "high_risk_communities": communities.get("high_risk_communities", 0) if communities else 0,
+                "accounts_in_cycles": cycles.get("accounts_in_cycles", 0) if cycles else 0
             }
-            
-            # Log what we're returning
-            print(f"Returning metrics: {metrics_data}")
             
             return jsonify({
                 "metrics": metrics_data,
@@ -276,7 +326,9 @@ def get_metrics():
                 "high_risk": 0,
                 "medium_risk": 0,
                 "low_risk": 0,
-                "communities": 0
+                "communities": 0,
+                "high_risk_communities": 0,
+                "accounts_in_cycles": 0
             }
         })
 
@@ -284,27 +336,51 @@ def get_metrics():
 def get_suspicious_accounts():
     try:
         with detector.driver.session() as session:
-            # Get accounts with high fraud scores
+            # Truy vấn cải tiến để lấy các tài khoản đáng ngờ có thêm thông tin chi tiết
             suspicious = session.run("""
                 MATCH (a:Account)
                 WHERE a.fraud_score > 0.5  // Suspicious score threshold
+                
+                // Lấy thêm thông tin về số lượng giao dịch và tổng giá trị
+                OPTIONAL MATCH (a)-[out:SENT]->()
+                WITH a, count(out) AS out_count, sum(out.amount) AS out_amount
+                
+                OPTIONAL MATCH ()-[in:SENT]->(a)
+                WITH a, out_count, out_amount, count(in) AS in_count, sum(in.amount) AS in_amount
+                
+                // Tìm các chu trình giao dịch liên quan đến tài khoản này
+                OPTIONAL MATCH path = (a)-[:SENT*2..3]->(a)
+                WITH a, out_count, out_amount, in_count, in_amount, 
+                     count(path) > 0 AS has_cycle
+                
                 RETURN 
                     a.id AS id, 
                     a.fraud_score AS score,
                     a.community AS community,
-                    a.pagerank_score AS pagerank,
-                    a.degree_score AS degree,
-                    a.similarity_score AS similarity,
-                    a.tx_imbalance AS imbalance,
-                    a.avg_tx_amount AS avg_amount,
-                    CASE WHEN a.only_sender = true THEN 1 ELSE 0 END AS only_sender,
-                    CASE WHEN a.high_tx_volume = true THEN 1 ELSE 0 END AS high_volume
+                    COALESCE(a.pagerank_score, 0) AS pagerank,
+                    COALESCE(a.degree_score, 0) AS degree,
+                    COALESCE(a.similarity_score, 0) AS similarity,
+                    COALESCE(a.tx_imbalance, 0) AS imbalance,
+                    COALESCE(a.base_score, 0) AS base_score,
+                    COALESCE(a.relation_boost, 0) AS relation_boost,
+                    COALESCE(a.cycle_boost, 0) AS cycle_boost,
+                    CASE WHEN has_cycle THEN 1 ELSE 0 END AS in_cycle,
+                    out_count AS sent_count,
+                    in_count AS received_count,
+                    out_amount AS sent_amount,
+                    in_amount AS received_amount,
+                    abs(out_amount - in_amount) AS imbalance_amount
                 ORDER BY score DESC
                 LIMIT 15
             """).data()
-            
-            # Log what we found
+              # Log what we found
             print(f"Found {len(suspicious)} suspicious accounts")
+            
+            # Thêm debug để xem thực sự có gì trong dữ liệu
+            if suspicious and len(suspicious) > 0:
+                sample_account = suspicious[0]
+                print(f"Mẫu tài khoản đáng ngờ: {sample_account}")
+                print(f"Các thuộc tính: {list(sample_account.keys())}")
             
             return jsonify({"suspicious": suspicious})
     except Exception as e:
@@ -321,22 +397,30 @@ def get_network():
                 RETURN count(r) as count
             """).single()
             
-            print(f"Total relationships in database: {rel_count['count']}")
-            
-            # Use a simpler query to get network data
+            print(f"Total relationships in database: {rel_count['count']}")            # Sử dụng truy vấn mới để lấy mạng lưới gian lận
             top_nodes_result = session.run("""
-                // Get ANY accounts with fraud scores and relationships
-                MATCH (a:Account)-[r]-(b:Account)
-                WHERE a.fraud_score > 0.7
-                WITH a, collect(r) AS rels, collect(b) AS connected
-                ORDER BY a.fraud_score DESC
-                LIMIT 5
+                // Lấy các tài khoản có điểm gian lận cao làm trung tâm
+                MATCH (a:Account)
+                WHERE a.fraud_score > 0.4
+                WITH a ORDER BY a.fraud_score DESC LIMIT 10
                 
-                // Return the data directly
-                RETURN collect(a) AS central_nodes,
-                    REDUCE(acc = [], n IN connected | acc + 
-                        CASE WHEN n IN collect(a) THEN [] ELSE [n] END) AS connected_nodes,
-                    REDUCE(acc = [], r IN rels | acc + [r]) AS relationships
+                // Lấy các kết nối 1-hop
+                OPTIONAL MATCH (a)-[r:SENT]-(other:Account)
+                WHERE a <> other
+                WITH a, other, r
+                WHERE other IS NOT NULL
+                
+                // Thu thập tất cả các node và relationships
+                WITH COLLECT(DISTINCT a) + COLLECT(DISTINCT other) AS allNodes,
+                     COLLECT(DISTINCT r) AS allRels
+                
+                // Trả về kết quả
+                WITH 
+                    [n IN allNodes WHERE n.fraud_score > 0.4] AS central_nodes,
+                    [n IN allNodes WHERE n.fraud_score <= 0.4 OR n.fraud_score IS NULL] AS connected_nodes,
+                    allRels AS relationships
+                
+                RETURN central_nodes, connected_nodes, relationships
             """).single()
 
             # Debug output to verify what's being returned
@@ -381,11 +465,11 @@ def get_network():
                             "group": 1  # Central node
                         })
             
-            # Process connected nodes
+        # Process connected nodes
             connected_count = 0
             if top_nodes_result and "connected_nodes" in top_nodes_result:
                 connected_nodes = top_nodes_result["connected_nodes"]
-                connected_count = len(connected_nodes)
+                connected_count = len([n for n in connected_nodes if n is not None]) 
                 
                 for node in connected_nodes:
                     if node is None:
@@ -405,15 +489,19 @@ def get_network():
                             "community": node.get("community", 0),
                             "group": 2  # Connected node
                         })
-            
-            # Process relationships
+              # Process relationships
             rel_count = 0
             if top_nodes_result and "relationships" in top_nodes_result:
                 relationships = top_nodes_result["relationships"]
-                rel_count = len(relationships)
+                rel_count = len([r for r in relationships if r is not None])
                 
                 for rel in relationships:
                     if rel is None:
+                        continue
+                    
+                    # Bảo đảm start_node và end_node tồn tại
+                    if not hasattr(rel, 'start_node') or not hasattr(rel, 'end_node'):
+                        print(f"Bỏ qua relationship không hợp lệ: {rel}")
                         continue
                     
                     # Get source and target nodes

@@ -293,13 +293,15 @@ class FraudDetector:
                     WITH a, count(tx) AS large_tx_count
                     WHERE large_tx_count > 0
                     SET a.high_value_tx = true
-                """)
-
+                """)    
+                
     def calculate_fraud_scores(self):
-        """Kết hợp tất cả điểm để tính điểm gian lận"""
+        """Kết hợp tất cả điểm để tính điểm gian lận - cải tiến để tận dụng tốt hơn mối quan hệ trong đồ thị"""
         with self.driver.session() as session:
             print("Đang tính toán fraud_score cho tất cả tài khoản...")
-            result = session.run("""
+            
+            # Trước tiên, tính điểm cơ bản dựa trên thuộc tính
+            base_score_query = """
                 MATCH (a:Account)
                 
                 // Đặt giá trị mặc định nếu thuộc tính không tồn tại
@@ -311,21 +313,99 @@ class FraudDetector:
                     COALESCE(a.high_tx_volume, false) AS high_volume,
                     COALESCE(a.tx_anomaly, false) AS anomaly,
                     COALESCE(a.only_sender, false) AS only_sender,
-                    COALESCE(a.high_value_tx, false) AS high_value  // NEW: Add high-value property
+                    COALESCE(a.high_value_tx, false) AS high_value
                 
-                // Tính toán fraud_score dựa trên tổng hợp các yếu tố
+                // Tính toán điểm cơ bản dựa trên các thuộc tính - đã điều chỉnh trọng số
                 WITH a, 
-                    pagerank * 0.35 + 
+                    pagerank * 0.30 + 
                     degree * 0.15 + 
-                    similarity * 0.3 + 
-                    imbalance * 0.15 +
-                    CASE WHEN high_volume THEN 0.05 ELSE 0 END +
-                    CASE WHEN anomaly THEN 0.07 ELSE 0 END +
+                    similarity * 0.25 + 
+                    imbalance * 0.20 +
+                    CASE WHEN high_volume THEN 0.08 ELSE 0 END +
+                    CASE WHEN anomaly THEN 0.10 ELSE 0 END +
                     CASE WHEN high_value THEN 0.15 ELSE 0 END + 
-                    CASE WHEN only_sender THEN 0 ELSE 0 END AS raw_score
+                    CASE WHEN only_sender THEN 0.05 ELSE 0 END AS base_score
+                
+                // Thiết lập điểm cơ bản
+                SET a.base_score = base_score
+                
+                RETURN count(a) AS updated_count
+            """
+            
+            result = session.run(base_score_query)
+            print(f"Đã tính điểm cơ bản cho {result.single()['updated_count']} tài khoản")
+            
+            # Tiếp theo, điều chỉnh điểm dựa trên mối quan hệ giao dịch
+            transaction_pattern_query = """
+                // Đầu tiên, tìm các mẫu giao dịch bất thường
+                MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
+                WHERE tx.amount > 30000  // Giao dịch với giá trị lớn
+                
+                // Tính điểm mối quan hệ dựa trên đặc điểm giao dịch
+                WITH sender, receiver, collect(tx) AS transactions,
+                     sum(tx.amount) AS total_amount,
+                     count(tx) AS tx_count,
+                     sender.base_score AS sender_score,
+                     receiver.base_score AS receiver_score
+                
+                // Nếu có nhiều giao dịch giá trị lớn giữa hai tài khoản với điểm cơ bản cao
+                WHERE tx_count > 1 AND total_amount > 50000 AND 
+                     (sender_score > 0.5 OR receiver_score > 0.5)
+                
+                // Tăng điểm cho cả sender và receiver
+                WITH sender, receiver, 
+                     CASE 
+                         WHEN sender_score > 0.7 AND receiver_score > 0.5 THEN 0.20
+                         WHEN sender_score > 0.5 OR receiver_score > 0.5 THEN 0.15
+                         ELSE 0.10
+                     END AS boost
+                
+                // Áp dụng tăng điểm
+                SET sender.relation_boost = COALESCE(sender.relation_boost, 0) + boost,
+                    receiver.relation_boost = COALESCE(receiver.relation_boost, 0) + boost
+                
+                RETURN count(sender) + count(receiver) AS boosted_accounts
+            """
+            
+            relation_result = session.run(transaction_pattern_query)
+            boosted_accounts = relation_result.single()["boosted_accounts"] if relation_result else 0
+            print(f"Đã điều chỉnh điểm cho {boosted_accounts} tài khoản dựa trên mẫu giao dịch")
+            
+            # Phát hiện vòng tròn giao dịch (chu trình)
+            cycle_detection_query = """
+                // Tìm các chu trình giao dịch
+                MATCH path = (a:Account)-[:SENT*2..4]->(a)
+                // Lấy các tài khoản trong chu trình
+                WITH a, [node IN nodes(path) | node] AS cycle_nodes
+                // Chỉ lấy mỗi chu trình một lần
+                WITH DISTINCT cycle_nodes
+                // Unwind để xử lý từng tài khoản trong chu trình
+                UNWIND cycle_nodes AS cycle_account
+                // Tăng điểm cho tài khoản trong chu trình
+                SET cycle_account.cycle_boost = 0.20
+                
+                RETURN count(DISTINCT cycle_account) AS cycle_accounts
+            """
+            
+            cycle_result = session.run(cycle_detection_query)
+            cycle_accounts = cycle_result.single()["cycle_accounts"] if cycle_result else 0
+            print(f"Đã phát hiện {cycle_accounts} tài khoản thuộc các chu trình giao dịch")
+            
+            # Cuối cùng, tổng hợp tất cả các điểm để tạo điểm fraud_score cuối cùng
+            final_score_query = """
+                MATCH (a:Account)
+                
+                // Tổng hợp tất cả các điểm boost
+                WITH a,
+                     COALESCE(a.base_score, 0) AS base,
+                     COALESCE(a.relation_boost, 0) AS relation,
+                     COALESCE(a.cycle_boost, 0) AS cycle
+                
+                // Tính điểm tổng hợp
+                WITH a, base + relation + cycle AS combined_score
                 
                 // Thêm một chút nhiễu ngẫu nhiên cho đa dạng (0.98-1.02)
-                WITH a, raw_score * (0.98 + rand()*0.04) AS final_score
+                WITH a, combined_score * (0.98 + rand()*0.04) AS final_score
                 
                 // Đảm bảo không vượt quá 1.0
                 SET a.fraud_score = CASE 
@@ -335,9 +415,10 @@ class FraudDetector:
                 END
                 
                 RETURN count(a) AS updated_count
-            """)
+            """
             
-            print(f"Đã tính fraud_score cho {result.single()['updated_count']} tài khoản")
+            final_result = session.run(final_score_query)
+            print(f"Đã hoàn thành tính fraud_score cho {final_result.single()['updated_count']} tài khoản")
 
     def finalize_and_evaluate(self):
         """Chuẩn hóa điểm và đánh giá kết quả theo batch"""
