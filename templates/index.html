@@ -17,8 +17,7 @@
             <div class="card-header bg-primary text-white">
                 <i class="fas fa-file-import me-2"></i> Import Dữ Liệu
             </div>
-            <div class="card-body">
-                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" id="uploadForm">
+            <div class="card-body">                <form action="{{ url_for('views.upload_file') }}" method="post" enctype="multipart/form-data" id="uploadForm">
                     <div class="mb-3">
                         <label for="file" class="form-label fw-bold">1. Chọn file CSV</label>
                         <div class="input-group">
@@ -89,7 +88,7 @@
                     </ul>
                 </div>
 
-                <form action="{{ url_for('analyze') }}" method="post" id="analyzeForm">
+                <form action="{{ url_for('views.analyze') }}" method="post" id="analyzeForm">
                     <div class="d-grid mt-3">
                         <button type="submit" class="btn btn-success" id="analyzeBtn" 
                                 {% if not has_data %}disabled{% endif %}>
@@ -105,7 +104,7 @@
 
                 {% if has_data %}
                     <div class="d-grid mt-3">
-                        <a href="{{ url_for('results') }}" class="btn btn-outline-primary">
+                        <a href="{{ url_for('views.results') }}" class="btn btn-outline-primary">
                             <i class="fas fa-chart-pie me-2"></i> Xem Kết Quả Trước Đó
                         </a>
                     </div>
@@ -166,7 +165,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-                <form action="{{ url_for('clear_database') }}" method="post">
+                <form action="{{ url_for('views.clear_database') }}" method="post">
                     <button type="submit" class="btn btn-danger">
                         <i class="fas fa-trash-alt me-2"></i> Xóa tất cả dữ liệu
                     </button>

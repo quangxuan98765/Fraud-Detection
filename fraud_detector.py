@@ -3,10 +3,16 @@ import pandas as pd
 import os
 import time
 from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, BATCH_SIZE, MAX_NODES, MAX_RELATIONSHIPS
+from analysis.transaction_analyzer import TransactionAnalyzer
+from analysis.account_analyzer import AccountAnalyzer
+from analysis.pattern_detector import PatternDetector
 
 class FraudDetector:
     def __init__(self):
         self.driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+        self.transaction_analyzer = TransactionAnalyzer(self.driver)
+        self.account_analyzer = AccountAnalyzer(self.driver)
+        self.pattern_detector = PatternDetector(self.driver)
 
     def check_data(self):
         """Kiểm tra xem đã có dữ liệu trong database chưa"""
@@ -609,126 +615,16 @@ class FraudDetector:
                     print(f"  Đã xử lý {min(i+batch_size, len(comms_to_process))}/{len(comms_to_process)} cộng đồng")
 
     def analyze_fraud(self):
-        """Chạy phân tích gian lận với các thuật toán đồ thị - phiên bản không sử dụng is_fraud"""
-        with self.driver.session() as session:
-            # Xóa dữ liệu phân tích cũ
-            print("🔍 Đang xóa phân tích cũ...")
-            session.run("""
-                MATCH (a:Account) 
-                REMOVE a.fraud_score, a.community, a.pagerank_score, 
-                    a.degree_score, a.similarity_score, a.path_score, a.known_fraud
-            """)
-
-            # Thêm đoạn này để xóa SIMILAR_TO relationships
-            print("🔍 Đang xóa mối quan hệ từ phân tích trước...")
-            session.run("""
-                // Xóa tất cả mối quan hệ SIMILAR_TO
-                MATCH ()-[r:SIMILAR_TO]->()
-                DELETE r
-            """)
-            
-            # Tạo index
-            session.run("CREATE INDEX IF NOT EXISTS FOR (a:Account) ON (a.id)")
-            
-            try:
-                # Thay thế lệnh xóa projected graph cũ
-                print("🔍 Đang xóa projected graph cũ...")
-                result = session.run("""
-                    CALL gds.graph.list()
-                    YIELD graphName
-                    WHERE graphName = 'fraud_graph'
-                    RETURN count(*) > 0 AS exists
-                """).single()
-
-                if result and result.get('exists', False):
-                    print("  Đã tìm thấy projected graph trong danh sách, đang xóa...")
-                    session.run("CALL gds.graph.drop('fraud_graph', false)")
-                else:
-                    print("  Không tìm thấy 'fraud_graph' trong danh sách.")
-                    
-                # 1. Tạo projected graph (chỉ dùng amount, không dùng is_fraud)
-                print("🔍 Đang tạo projected graph...")
-                session.run("""
-                    CALL gds.graph.project(
-                        'fraud_graph',
-                        'Account',
-                        'SENT',
-                        {
-                            relationshipProperties: {
-                                amount: {property: 'amount', defaultValue: 0.0}
-                            }
-                        }
-                    )
-                """)
-                
-                # 2. Degree Centrality - Đo lường số kết nối
-                print("🔍 Đang tính Degree Centrality...")
-                session.run("""
-                    CALL gds.degree.write('fraud_graph', {
-                        writeProperty: 'degree_score'
-                    })
-                """)
-                
-                # 3. PageRank - Xác định tài khoản có ảnh hưởng
-                print("🔍 Đang chạy PageRank...")
-                session.run("""
-                    CALL gds.pageRank.write('fraud_graph', {
-                        writeProperty: 'pagerank_score',
-                        maxIterations: 20
-                    })
-                """)
-                
-                # 4. Louvain - Phát hiện cộng đồng
-                print("🔍 Đang phát hiện cộng đồng với Louvain...")
-                session.run("""
-                    CALL gds.louvain.write('fraud_graph', {
-                        writeProperty: 'community'
-                    })
-                """)
-                
-                # 5. Node Similarity - Tìm các tài khoản có hành vi tương tự
-                print("🔍 Đang tính Node Similarity...")
-                session.run("""
-                    CALL gds.nodeSimilarity.write('fraud_graph', {
-                        writeProperty: 'similarity_score',
-                        writeRelationshipType: 'SIMILAR_TO',
-                        topK: 10
-                    })
-                """)
-                
-                # KHÔNG SỬ DỤNG Shortest Path dựa trên is_fraud
-                # Thay vào đó, tính các chỉ số hành vi bất thường
-                  # 6. Tìm các hành vi bất thường thay thế cho shortest path
-                print("🔍 Đang tính giao dịch ra/vào...")
-                self.process_transaction_stats()
-
-                # 6.3 & 6.4: Tính tx_imbalance và đánh dấu các hành vi bất thường
-                print("🔍 Đang đánh dấu hành vi bất thường...")
-                self.process_account_behaviors()
-
-                print("🔍 Đang phân tích giao dịch có giá trị bất thường...")
-                self.process_transaction_anomalies()
-                  # 7. Kết hợp tất cả đặc trưng để tính điểm gian lận tổng hợp
-                print("🔍 Đang tính điểm gian lận tổng hợp...")
-                self.calculate_fraud_scores()
-                
-                # 8. Điều chỉnh điểm gian lận của cộng đồng - phiên bản tối ưu
-                print("🔍 Đang tìm các cộng đồng có điểm gian lận cao...")
-                self.process_high_risk_communities()
-                
-                # 9. Chuẩn hóa lại để đảm bảo trong khoảng 0-1
-                print("🔍 Đang chuẩn hóa điểm cuối cùng...")
-                self.finalize_and_evaluate()
-                
-                # # 11. Xóa projected graph để giải phóng bộ nhớ
-                # print("🔍 Đang xóa projected graph...")
-                self.cleanup_projected_graph()
-                print("✅ Phân tích gian lận hoàn tất.")
-                return True
-                
-            except Exception as e:
-                print(f"Lỗi khi phân tích gian lận: {e}")
-                return False
+        """Phân tích toàn bộ dữ liệu để phát hiện gian lận"""
+        # 1. Phân tích giao dịch
+        self.transaction_analyzer.process_transaction_stats()
+        
+        # 2. Phân tích tài khoản
+        self.account_analyzer.process_account_behaviors()
+        self.account_analyzer.process_transaction_anomalies()
+        
+        # 3. Phân tích mẫu và tính điểm gian lận
+        self.pattern_detector.calculate_fraud_scores()
                 
     def cleanup_projected_graph(self):
         """Xóa projected graph với cơ chế timeout và bỏ qua việc kiểm tra tồn tại"""
