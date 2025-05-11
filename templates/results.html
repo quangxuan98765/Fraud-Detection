@@ -33,6 +33,11 @@
 </div>
 
 <!-- Dashboard chính -->
+<div class="alert alert-danger d-none metrics-error" role="alert">
+    <i class="fas fa-exclamation-triangle me-2"></i>
+    <span>Không thể tải dữ liệu metrics. Vui lòng làm mới trang.</span>
+</div>
+
 <div class="row mb-4">
     <!-- Metric Cards -->
     <div class="col-md-3">
@@ -49,10 +54,12 @@
                 <h5 class="card-title text-success">Giao dịch</h5>
                 <p class="display-5 mb-0" id="totalTransactions">...</p>
             </div>
-        </div>    </div>    <div class="col-md-3">        <div class="card metric-card border-danger text-center mb-3" style="cursor: pointer;" onclick="showFraudTransactions()">            <div class="card-body">
-                <h5 class="card-title text-danger">Giao dịch bị phát hiện</h5>
+        </div>    </div>    <div class="col-md-3">        <div class="card metric-card border-danger text-center mb-3" style="cursor: pointer;" onclick="showFraudTransactions()">            <div class="card-body">                <h5 class="card-title text-danger">Giao dịch bị phát hiện</h5>
                 <p class="display-5 mb-0" id="fraudCount">...</p>
-                <br>
+                <div id="transactionStats" class="small text-muted mt-2">
+                    <div>Giao dịch thực sự gian lận: <span id="realFraudCount">...</span></div>
+                    <div>True Positives: <span id="truePosCount">...</span></div>
+                </div>
                 <small class="text-muted">Click để xem chi tiết các giao dịch</small>
             </div>
         </div>
@@ -407,12 +414,14 @@ document.addEventListener('DOMContentLoaded', function() {
             showErrorMessage();
             return;
         }
-          // Đảm bảo rằng có giá trị hợp lệ trước khi hiển thị
+        
+        // Đảm bảo rằng có giá trị hợp lệ trước khi hiển thị
         const accounts = metrics.accounts || 0;
-        const transactions = metrics.transactions || 0;          // Get metrics directly from API response
+        const transactions = metrics.transactions || 0;
         const detectedTransactions = metrics.detected_fraud_transactions || 0;
         const fraudAccounts = metrics.fraud || 0;
         const groundTruth = metrics.ground_truth_frauds || 0;
+        const truePositives = metrics.true_positives || 0;
         const precision = metrics.precision || 0;
         const recall = metrics.recall || 0;
         const f1_score = metrics.f1_score || 0;
@@ -421,38 +430,20 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('totalAccounts').textContent = accounts.toLocaleString();
         document.getElementById('totalTransactions').textContent = transactions.toLocaleString();
         
-        // Display fraud transaction count and accuracy metrics
-        document.getElementById('fraudCount').innerHTML = 
-            `${detectedTransactions.toLocaleString()} 
-             <div class="mt-2">
-                <small class="text-muted">Chính xác: ${(precision * 100).toFixed(1)}%</small><br>
-                <small class="text-muted">Recall: ${(recall * 100).toFixed(1)}%</small><br>
-                <small class="text-muted">F1-Score: ${(f1_score * 100).toFixed(1)}%</small>
-             </div>`;// Thêm tooltip để hiển thị thông tin chi tiết
-        const fraudCardBody = document.querySelector('.card-body:has(#fraudCount)');
-        if (fraudCardBody) {
-            const tooltipText = `${detectedTransactions.toLocaleString()} giao dịch bị phát hiện là gian lận<br>
-                               Trong đó ${metrics.true_positives || 0} là các phát hiện đúng.<br>
-                               Tổng số giao dịch gian lận thực sự: ${groundTruth}<br>
-                               ${fraudAccounts.toLocaleString()} tài khoản có điểm gian lận > {{fraud_threshold}}`;
-            
-            fraudCardBody.setAttribute('data-bs-toggle', 'tooltip');
-            fraudCardBody.setAttribute('data-bs-html', 'true');
-            fraudCardBody.setAttribute('data-bs-placement', 'bottom');
-            fraudCardBody.setAttribute('title', tooltipText);
-            
-            // Khởi tạo tooltip
-            new bootstrap.Tooltip(fraudCardBody);
-        }
-          // Hiển thị số cộng đồng có rủi ro cao
+        // Display fraud transaction count
+        document.getElementById('fraudCount').textContent = detectedTransactions.toLocaleString();
+        
+        // Display real fraud counts and true positives
+        document.getElementById('realFraudCount').textContent = groundTruth.toLocaleString();
+        document.getElementById('truePosCount').textContent = truePositives.toLocaleString();
+        
+        // Hiển thị số cộng đồng có rủi ro cao
         document.getElementById('highRiskCommunityCount').textContent = metrics.high_risk_communities || "0";
         
         // Sử dụng giá trị chính xác từ API
-        updateProgressBar('precision-bar', metrics.precision * 100);
-        updateProgressBar('recall-bar', metrics.recall * 100); 
-        updateProgressBar('f1-bar', metrics.f1_score * 100);        // Progress bars are updated with actual metrics from the API
-        // No need for additional validation since the metrics are calculated
-        // directly from database values in the API endpoint
+        updateProgressBar('precision-bar', precision * 100);
+        updateProgressBar('recall-bar', recall * 100); 
+        updateProgressBar('f1-bar', f1_score * 100);
     }
     
     // Helper function to update progress bars

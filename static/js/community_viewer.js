@@ -629,10 +629,13 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
             return;
         }
-        
-        // Sắp xếp giao dịch theo giá trị giảm dần và ưu tiên giao dịch gian lận
+          // Sắp xếp giao dịch theo giá trị giảm dần và ưu tiên giao dịch có điểm rủi ro cao
         transactions.sort((a, b) => {
-            if (a.is_fraud !== b.is_fraud) return b.is_fraud - a.is_fraud;
+            // Determine if transactions are high-risk based on their source and target scores
+            const aIsFraud = a.source_score > 0.8 && a.target_score > 0.8;
+            const bIsFraud = b.source_score > 0.8 && b.target_score > 0.8;
+            
+            if (aIsFraud !== bIsFraud) return bIsFraud - aIsFraud;
             return b.amount - a.amount;
         });
         
@@ -645,9 +648,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td>${tx.source}</td>
                     <td>${tx.target}</td>
                     <td>${formatCurrency(tx.amount)}</td>
-                    <td>${tx.type}</td>
-                    <td>
-                        ${tx.is_fraud ? 
+                    <td>${tx.type}</td>                    <td>
+                        ${(tx.source_score > 0.8 && tx.target_score > 0.8) ? 
                             '<span class="badge bg-danger">Gian lận</span>' : 
                             tx.high_risk ? 
                                 '<span class="badge bg-warning text-dark">Rủi ro</span>' : 
@@ -765,11 +767,10 @@ document.addEventListener('DOMContentLoaded', function() {
             received_count: acc.received_count || 0
         }));
         
-        const links = transactions.map(tx => ({
-            source: tx.source,
+        const links = transactions.map(tx => ({            source: tx.source,
             target: tx.target,
             value: tx.amount,
-            is_fraud: tx.is_fraud === 1
+            is_fraud: (tx.source_score > 0.8 && tx.target_score > 0.8)
         }));
         
         // Xóa nội dung container

@@ -226,9 +226,8 @@ function renderNetwork(data) {
     const links = svg.append('g')
         .selectAll('line')
         .data(data.links)
-        .enter()
-        .append('line')
-        .attr('stroke', d => d.is_fraud == 1 ? '#ff4444' : '#999')
+        .enter()        .append('line')
+        .attr('stroke', d => d.is_fraud ? '#ff4444' : '#999')
         .attr('stroke-opacity', 0.6)
         .attr('stroke-width', d => Math.sqrt(d.value || 1));
     

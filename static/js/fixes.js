@@ -100,8 +100,13 @@ function fetchAndUpdateMetrics() {
                 if (data.metrics.f1_score !== undefined) {
                     safeUpdateProgressBar('f1-bar', data.metrics.f1_score * 100);
                 }
+                  console.log("Metrics updated successfully");
                 
-                console.log("Metrics updated successfully");
+                // Hide any error messages on successful load
+                const errorAlert = document.querySelector('.metrics-error');
+                if (errorAlert) {
+                    errorAlert.classList.add('d-none');
+                }
             } else {
                 console.warn("No data available in metrics response");
                 // Show no data available message
@@ -110,13 +115,21 @@ function fetchAndUpdateMetrics() {
                 safeUpdateText('fraudCount', "-");
                 safeUpdateText('highRiskCommunityCount', "-");
             }
-        })
-        .catch(error => {
+        })        .catch(error => {
             console.error('Error fetching metrics:', error);
             // Show error message
             safeUpdateText('totalAccounts', "Lỗi");
             safeUpdateText('totalTransactions', "Lỗi");
             safeUpdateText('fraudCount', "Lỗi");
+            safeUpdateText('highRiskCommunityCount', "Lỗi");
+            
+            // Show the error alert
+            const errorAlert = document.querySelector('.metrics-error');
+            if (errorAlert) {
+                errorAlert.classList.remove('d-none');
+                errorAlert.querySelector('span').textContent = 
+                    `Không thể tải dữ liệu metrics: ${error.message}. Vui lòng làm mới trang.`;
+            }
         });
 }
 
@@ -133,7 +146,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const refreshButton = document.createElement('button');
         refreshButton.className = 'btn btn-sm btn-outline-primary mt-3';
         refreshButton.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Làm mới dữ liệu';
-        refreshButton.onclick = fetchAndUpdateMetrics;
+        refreshButton.onclick = function() {
+            // Hide any error messages when manually refreshing
+            const errorAlert = document.querySelector('.metrics-error');
+            if (errorAlert) {
+                errorAlert.classList.add('d-none');
+            }
+            fetchAndUpdateMetrics();
+        };
         
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'col-12 text-center';

@@ -3,31 +3,35 @@ from config import FRAUD_SCORE_THRESHOLD
 class PatternDetector:
     def __init__(self, driver):
         self.driver = driver
-
+        
     def calculate_fraud_scores(self):
         """Kết hợp tất cả điểm để tính điểm gian lận"""
         with self.driver.session() as session:
             print("Đang tính toán fraud_score cho tất cả tài khoản...")
             
-            # Đánh dấu tài khoản liên quan đến giao dịch gian lận đã biết
+            # Tìm các tài khoản có đặc điểm bất thường rõ ràng
             session.run("""
-                MATCH (s:Account)-[r:SENT {is_fraud: 1}]->(t:Account)
-                SET s.known_fraud = true, t.known_fraud = true
+                MATCH (s:Account)-[r:SENT]->(t:Account)
+                WHERE r.amount > 200000 AND 
+                      ((s.tx_anomaly = true AND s.tx_imbalance > 0.85) OR 
+                       (t.tx_anomaly = true AND t.tx_imbalance > 0.85))
+                SET s.potential_fraud = true, t.potential_fraud = true
             """)
 
             # Tính điểm cơ bản dựa trên thuộc tính
-            base_score_query = """
-                MATCH (a:Account)
+            base_score_query = """                MATCH (a:Account)
                 
                 WITH a, 
                     COALESCE(a.pagerank_score, 0) AS pagerank,
                     COALESCE(a.degree_score, 0) AS degree,
                     COALESCE(a.similarity_score, 0) AS similarity,
                     COALESCE(a.tx_imbalance, 0) AS imbalance,
-                    COALESCE(a.high_tx_volume, false) AS high_volume,
-                    COALESCE(a.tx_anomaly, false) AS anomaly,
+                    COALESCE(a.high_tx_volume, false) AS high_volume,                    COALESCE(a.tx_anomaly, false) AS anomaly,
                     COALESCE(a.only_sender, false) AS only_sender,
-                    COALESCE(a.high_value_tx, false) AS high_value                WITH a,
+                    COALESCE(a.high_value_tx, false) AS high_value,
+                    COALESCE(a.potential_fraud, false) AS potential_fraud
+                
+                WITH a,
                     pagerank * 0.05 +
                     degree * 0.03 + 
                     similarity * 0.02 +
@@ -48,8 +52,7 @@ class PatternDetector:
                         WHEN high_volume THEN 0.03
                         ELSE 0 
                     END +
-                    
-                    CASE 
+                      CASE 
                         // Thêm điều kiện khắt khe hơn
                         WHEN anomaly AND high_value AND imbalance > 0.8 THEN 0.35
                         WHEN anomaly AND high_value AND imbalance > 0.6 THEN 0.25
@@ -59,8 +62,8 @@ class PatternDetector:
                         ELSE 0 
                     END +
                     
-                    // Giữ nguyên trọng số của gian lận đã biết vì đây là dấu hiệu mạnh mẽ
-                    CASE WHEN a.known_fraud THEN 0.90 ELSE 0 END +
+                    // Thay thế known_fraud bằng potential_fraud
+                    CASE WHEN potential_fraud THEN 0.80 ELSE 0 END +
                     
                     CASE
                          WHEN high_value AND only_sender AND imbalance > 0.7 THEN 0.20
@@ -123,11 +126,12 @@ class PatternDetector:
         
         relation_result = session.run(transaction_pattern_query)
         boosted_accounts = relation_result.single()["boosted_accounts"] if relation_result else 0
-        print(f"Đã điều chỉnh điểm cho {boosted_accounts} tài khoản dựa trên mẫu giao dịch")
-
+        print(f"Đã điều chỉnh điểm cho {boosted_accounts} tài khoản dựa trên mẫu giao dịch")    
+    
     def _detect_cycles(self, session):
         """Phát hiện chu trình giao dịch"""
-        cycle_detection_query = """            MATCH path = (a:Account)-[r:SENT*2..4]->(a)
+        cycle_detection_query = """
+            MATCH path = (a:Account)-[r:SENT*2..4]->(a)
             WITH path, 
                  [node IN nodes(path) | node] AS cycle_nodes,
                  reduce(total = 0, r IN relationships(path) | total + r.amount) AS cycle_amount,
@@ -157,10 +161,10 @@ class PatternDetector:
                     WHEN size(cycle_nodes) <= 4 AND cycle_amount > 100000 THEN 0.15
                     ELSE 0.10
                 END,
-                cycle_account.known_fraud = CASE 
-                    // Chỉ đánh dấu là gian lận cho những chu trình rõ ràng
+                cycle_account.suspected_fraud = CASE 
+                    // Đánh dấu nghi ngờ gian lận cho những chu trình rõ ràng
                     WHEN size(cycle_nodes) <= 3 AND cycle_amount > 150000 AND max_tx_amount > 80000 THEN true
-                    ELSE cycle_account.known_fraud 
+                    ELSE cycle_account.suspected_fraud 
                 END
             
             RETURN count(DISTINCT cycle_account) AS cycle_accounts

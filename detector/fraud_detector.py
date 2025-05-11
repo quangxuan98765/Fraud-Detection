@@ -108,13 +108,12 @@ class FraudDetector:
     def analyze_fraud(self):
         """Chạy phân tích gian lận với các thuật toán đồ thị"""
         try:
-            with self.db_manager.driver.session() as session:
-                # Xóa dữ liệu phân tích cũ
+            with self.db_manager.driver.session() as session:                # Xóa dữ liệu phân tích cũ
                 print("🔍 Đang xóa phân tích cũ...")
                 session.run("""
                     MATCH (a:Account) 
                     REMOVE a.fraud_score, a.community, a.pagerank_score, 
-                        a.degree_score, a.similarity_score, a.path_score, a.known_fraud,
+                        a.degree_score, a.similarity_score, a.path_score, a.suspected_fraud,
                         a.base_score, a.tx_anomaly, a.high_tx_volume, a.only_sender
                 """)
     

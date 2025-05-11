@@ -149,14 +149,12 @@ def get_metrics():
             basic_metrics = session.run("""
                 MATCH (a:Account)
                 OPTIONAL MATCH (a)-[tx:SENT]->()
-                  WITH a, tx
+                WITH a, tx
 
                 RETURN count(DISTINCT a) AS total_accounts,
                        count(DISTINCT tx) AS total_transactions,
                        count(DISTINCT CASE WHEN a.fraud_score > $fraud_threshold THEN a END) AS detected_fraud_accounts,
-                       count(DISTINCT CASE WHEN tx IS NOT NULL AND a.fraud_score > $fraud_threshold THEN tx END) AS detected_fraud_transactions,
-                       count(DISTINCT CASE WHEN tx.is_fraud = 1 AND a.fraud_score > $fraud_threshold THEN tx END) AS true_positives,
-                       count(DISTINCT CASE WHEN tx.is_fraud = 1 THEN tx END) AS ground_truth_frauds
+                       count(DISTINCT CASE WHEN tx IS NOT NULL AND a.fraud_score > $fraud_threshold THEN tx END) AS detected_fraud_transactions
             """, fraud_threshold=FRAUD_SCORE_THRESHOLD).single()
 
             fraud_levels = session.run("""
@@ -170,29 +168,36 @@ def get_metrics():
                     count(CASE WHEN a.fraud_score <= 0.3 THEN 1 END) AS very_low_risk
             """, fraud_threshold=FRAUD_SCORE_THRESHOLD,
                 suspicious_threshold=SUSPICIOUS_THRESHOLD).single()
-                
+            
             communities = session.run("""
                 MATCH (a:Account)
-                WHERE a.community IS NOT NULL 
-                WITH a.community AS community, count(a) AS size, avg(a.fraud_score) AS avg_score
-                WHERE size >= 2  // Only count communities with at least 2 accounts
+                WHERE a.community IS NOT NULL
+                WITH a.community AS community, COUNT(a) AS node_count
+                WHERE node_count >= 2  // Only count communities with at least 2 accounts
+                
+                MATCH (m:Account)
+                WHERE m.community = community
+                
+                WITH community, 
+                     COUNT(m) AS community_size,
+                     AVG(m.fraud_score) AS avg_score,
+                     COUNT(CASE WHEN m.fraud_score > $fraud_threshold THEN 1 END) AS high_risk_nodes
+                
                 RETURN count(DISTINCT community) AS count,
-                       count(CASE WHEN avg_score > $fraud_threshold THEN 1 END) AS high_risk_communities
+                       count(CASE WHEN avg_score > 0.5 OR high_risk_nodes > 0 THEN 1 END) AS high_risk_communities
             """, fraud_threshold=FRAUD_SCORE_THRESHOLD).single()
             
             cycles = session.run("""
                 MATCH path = (a:Account)-[:SENT*2..4]->(a)
                 RETURN count(DISTINCT a) AS accounts_in_cycles
             """).single()
-
+            
             # Calculate metrics using actual values from database
             metrics_data = {
                 "accounts": basic_metrics.get("total_accounts", 0) if basic_metrics else 0,
                 "transactions": basic_metrics.get("total_transactions", 0) if basic_metrics else 0,
                 "fraud": basic_metrics.get("detected_fraud_accounts", 0) if basic_metrics else 0,
-                "ground_truth_frauds": basic_metrics.get("ground_truth_frauds", 0) if basic_metrics else 0,
                 "detected_fraud_transactions": basic_metrics.get("detected_fraud_transactions", 0) if basic_metrics else 0,
-                "true_positives": basic_metrics.get("true_positives", 0) if basic_metrics else 0,
                 "very_high_risk": fraud_levels.get("very_high_risk", 0) if fraud_levels else 0,
                 "high_risk": fraud_levels.get("high_risk", 0) if fraud_levels else 0,
                 "medium_risk": fraud_levels.get("medium_risk", 0) if fraud_levels else 0,
@@ -201,24 +206,51 @@ def get_metrics():
                 "communities": communities.get("count", 0) if communities else 0,
                 "high_risk_communities": communities.get("high_risk_communities", 0) if communities else 0,
                 "accounts_in_cycles": cycles.get("accounts_in_cycles", 0) if cycles else 0
-            }            # Calculate precision, recall and F1 score using actual values
-            true_positives = basic_metrics.get("true_positives", 0) if basic_metrics else 0
-            detected_fraud_transactions = basic_metrics.get("detected_fraud_transactions", 0) if basic_metrics else 0
-            ground_truth_frauds = basic_metrics.get("ground_truth_frauds", 0) if basic_metrics else 0
-
-            # Calculate metrics using same formula as debug.html
-            precision = true_positives / detected_fraud_transactions if detected_fraud_transactions > 0 else 0
-            recall = true_positives / ground_truth_frauds if ground_truth_frauds > 0 else 0
-            f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-            
-            print(f"Metrics calculation: TP={true_positives}, Detected={detected_fraud_transactions}, GT={ground_truth_frauds}")
-            print(f"Results: Precision={precision*100:.1f}%, Recall={recall*100:.1f}%, F1={f1_score*100:.1f}%")
-
-            metrics_data.update({
-                "precision": precision,
-                "recall": recall,
-                "f1_score": f1_score
-            })
+            }
+              # Sử dụng is_fraud để tính toán metrics (chỉ cho mục đích đánh giá model)
+            # Lưu ý: Trong môi trường thực tế, chúng ta không biết giá trị ground truth is_fraud
+            try:
+                with detector.driver.session() as validation_session:
+                    validation_metrics = validation_session.run("""
+                        MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
+                        RETURN 
+                            count(DISTINCT tx) AS total_transactions,
+                            count(DISTINCT CASE WHEN sender.fraud_score > $fraud_threshold OR receiver.fraud_score > $fraud_threshold THEN tx END) AS detected_fraud_transactions,
+                            count(DISTINCT CASE WHEN tx.is_fraud = 1 THEN tx END) AS ground_truth_frauds,
+                            count(DISTINCT CASE WHEN tx.is_fraud = 1 AND (sender.fraud_score > $fraud_threshold OR receiver.fraud_score > $fraud_threshold) THEN tx END) AS true_positives
+                    """, fraud_threshold=FRAUD_SCORE_THRESHOLD).single()
+                    
+                    if validation_metrics:
+                        detected_fraud_transactions = validation_metrics.get("detected_fraud_transactions", 0)
+                        ground_truth_frauds = validation_metrics.get("ground_truth_frauds", 0)
+                        true_positives = validation_metrics.get("true_positives", 0)
+                        
+                        # Tính toán precision, recall và F1 score từ dữ liệu thực tế
+                        precision = true_positives / detected_fraud_transactions if detected_fraud_transactions > 0 else 0
+                        recall = true_positives / ground_truth_frauds if ground_truth_frauds > 0 else 0
+                        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+                        
+                        metrics_data.update({
+                            "precision": precision,
+                            "recall": recall,
+                            "f1_score": f1_score,
+                            "true_positives": true_positives,
+                            "ground_truth_frauds": ground_truth_frauds,
+                            "detected_fraud_transactions": detected_fraud_transactions  # Cập nhật dữ liệu đã phát hiện
+                        })
+                
+                print(f"Metrics calculation complete. Using is_fraud for evaluation purposes.")
+            except Exception as validation_error:
+                print(f"Warning: Could not calculate validation metrics with is_fraud: {str(validation_error)}")
+                # Set default metrics even if validation fails
+                metrics_data.update({
+                    "precision": 0,
+                    "recall": 0,
+                    "f1_score": 0,
+                    "true_positives": 0,
+                    "ground_truth_frauds": 0,
+                    "detected_fraud_transactions": 0
+                })
 
             return jsonify({
                 "metrics": metrics_data,
@@ -346,7 +378,7 @@ def get_network():
                                 "source": rel.start_node["id"],
                                 "target": rel.end_node["id"],
                                 "value": rel.get("amount", 1),
-                                "is_fraud": rel.get("is_fraud", 0) == 1
+                                "is_fraud": rel.start_node.get("fraud_score", 0) > 0.7 or rel.end_node.get("fraud_score", 0) > 0.7
                             })
             
             print(f"Network data prepared: {len(network['nodes'])} nodes, {len(network['links'])} links")
@@ -354,9 +386,6 @@ def get_network():
     except Exception as e:
         print(f"Network API error: {str(e)}")
         return jsonify({"error": str(e), "network": {"nodes": [], "links": []}})
-    except Exception as e:
-        print(f"Network API error: {str(e)}")
-        return jsonify({"error": str(e), "nodes": [], "links": []})
 
 @api_bp.route('/reanalyze', methods=['POST'])
 def reanalyze():
@@ -383,27 +412,31 @@ def reanalyze():
 @api_bp.route('/debug-metrics')
 def debug_metrics():
     try:
-        with detector.driver.session() as session:
-            # Truy vấn trực tiếp các ngưỡng và số lượng giao dịch
+        with detector.driver.session() as session:            
+            # Truy vấn trực tiếp các ngưỡng và số lượng giao dịch              
             debug_info = session.run("""
-                MATCH (a:Account)
-                OPTIONAL MATCH (a)-[tx:SENT]->()
+                MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
                 
-                RETURN count(DISTINCT a) AS total_accounts,
+                RETURN count(DISTINCT sender) + count(DISTINCT receiver) AS total_accounts,
                        count(DISTINCT tx) AS total_transactions,
-                       count(DISTINCT CASE WHEN a.fraud_score > 0.7 THEN a END) AS fraud_accounts_07,
-                       count(DISTINCT CASE WHEN a.fraud_score > 0.6 THEN a END) AS fraud_accounts_06,
-                       count(DISTINCT CASE WHEN a.fraud_score > 0.5 THEN a END) AS fraud_accounts_05,
+                       count(DISTINCT CASE WHEN sender.fraud_score > 0.7 THEN sender END) + 
+                          count(DISTINCT CASE WHEN receiver.fraud_score > 0.7 THEN receiver END) AS fraud_accounts_07,
+                       count(DISTINCT CASE WHEN sender.fraud_score > 0.6 THEN sender END) + 
+                          count(DISTINCT CASE WHEN receiver.fraud_score > 0.6 THEN receiver END) AS fraud_accounts_06,
+                       count(DISTINCT CASE WHEN sender.fraud_score > 0.5 THEN sender END) + 
+                          count(DISTINCT CASE WHEN receiver.fraud_score > 0.5 THEN receiver END) AS fraud_accounts_05,
                        
-                       count(DISTINCT CASE WHEN a.fraud_score > 0.7 AND tx IS NOT NULL THEN tx END) AS fraud_transactions_07,
-                       count(DISTINCT CASE WHEN a.fraud_score > 0.6 AND tx IS NOT NULL THEN tx END) AS fraud_transactions_06,
-                       count(DISTINCT CASE WHEN a.fraud_score > 0.5 AND tx IS NOT NULL THEN tx END) AS fraud_transactions_05,
+                       count(DISTINCT CASE WHEN sender.fraud_score > 0.7 OR receiver.fraud_score > 0.7 THEN tx END) AS fraud_transactions_07,
+                       count(DISTINCT CASE WHEN sender.fraud_score > 0.6 OR receiver.fraud_score > 0.6 THEN tx END) AS fraud_transactions_06,
+                       count(DISTINCT CASE WHEN sender.fraud_score > 0.5 OR receiver.fraud_score > 0.5 THEN tx END) AS fraud_transactions_05,
                        
+                       // Count of actual fraud transactions from ground truth (for evaluation only)
                        count(DISTINCT CASE WHEN tx.is_fraud = 1 THEN tx END) AS real_fraud_transactions,
                        
-                       SUM(CASE WHEN tx.is_fraud = 1 AND (a.fraud_score > 0.7) THEN 1 ELSE 0 END) AS true_positives_07,
-                       SUM(CASE WHEN tx.is_fraud = 1 AND (a.fraud_score > 0.6) THEN 1 ELSE 0 END) AS true_positives_06,
-                       SUM(CASE WHEN tx.is_fraud = 1 AND (a.fraud_score > 0.5) THEN 1 ELSE 0 END) AS true_positives_05                       
+                       // True positives at different thresholds (using is_fraud for evaluation only)
+                       count(DISTINCT CASE WHEN tx.is_fraud = 1 AND (sender.fraud_score > 0.7 OR receiver.fraud_score > 0.7) THEN tx END) AS true_positives_07,
+                       count(DISTINCT CASE WHEN tx.is_fraud = 1 AND (sender.fraud_score > 0.6 OR receiver.fraud_score > 0.6) THEN tx END) AS true_positives_06,
+                       count(DISTINCT CASE WHEN tx.is_fraud = 1 AND (sender.fraud_score > 0.5 OR receiver.fraud_score > 0.5) THEN tx END) AS true_positives_05
             """).single()
             
             # Convert Neo4j Record to a Python dictionary
@@ -490,7 +523,7 @@ def get_community_details(community_id):
                     sender.id AS source,
                     receiver.id AS target,
                     tx.amount AS amount,
-                    COALESCE(tx.is_fraud, 0) AS is_fraud,
+                    CASE WHEN sender.fraud_score > 0.7 OR receiver.fraud_score > 0.7 THEN 1 ELSE 0 END AS is_fraud,
                     COALESCE(tx.type, 'TRANSFER') AS type,
                     sender.fraud_score > $fraud_threshold OR receiver.fraud_score > $fraud_threshold AS high_risk
                 ORDER BY amount DESC
@@ -617,7 +650,7 @@ def get_fraud_transactions(transaction_type):
                     tx.timestamp AS timestamp,
                     COALESCE(tx.type, 'Khác') AS type,
                     CASE 
-                        WHEN tx.is_fraud = 1 THEN true
+                        WHEN sender.fraud_score > 0.7 OR receiver.fraud_score > 0.7 THEN true
                         ELSE false
                     END AS is_fraud,
                     sender.community AS source_community,

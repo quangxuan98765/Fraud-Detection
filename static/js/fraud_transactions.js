@@ -145,9 +145,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td>
                     <strong class="fraud-amount">${new Intl.NumberFormat('vi-VN', { 
                         style: 'currency', 
-                        currency: 'VND' 
-                    }).format(tx.amount)}</strong>
-                    ${tx.is_fraud ? 
+                        currency: 'VND'                    }).format(tx.amount)}</strong>
+                    ${(tx.source_score > 0.8 && tx.target_score > 0.8) ? 
                         '<span class="badge bg-danger ms-2">Đã xác nhận</span>' : ''}
                 </td>
                 <td><span class="badge bg-secondary fraud-transaction-badge">${tx.type || 'Khác'}</span></td>
@@ -199,9 +198,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const avgScore = transactions.reduce((sum, tx) => {
             const txScore = ((tx.source_score || 0) + (tx.target_score || 0)) / 2;
             return sum + txScore;
-        }, 0) / (total || 1);
-
-        const confirmedFraud = transactions.filter(tx => tx.is_fraud).length;
+        }, 0) / (total || 1);        const confirmedFraud = transactions.filter(tx => {
+            const sourceScore = tx.source_score || 0;
+            const targetScore = tx.target_score || 0;
+            // A transaction is considered confirmed fraud if both accounts have very high fraud scores
+            return sourceScore > 0.8 && targetScore > 0.8;
+        }).length;
         const highRisk = transactions.filter(tx => {
             const avgScore = ((tx.source_score || 0) + (tx.target_score || 0)) / 2;
             return avgScore > 0.7;
