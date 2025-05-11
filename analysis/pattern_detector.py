@@ -27,40 +27,47 @@ class PatternDetector:
                     COALESCE(a.high_tx_volume, false) AS high_volume,
                     COALESCE(a.tx_anomaly, false) AS anomaly,
                     COALESCE(a.only_sender, false) AS only_sender,
-                    COALESCE(a.high_value_tx, false) AS high_value
-
-                WITH a,
+                    COALESCE(a.high_value_tx, false) AS high_value                WITH a,
                     pagerank * 0.05 +
                     degree * 0.03 + 
                     similarity * 0.02 +
                     
                     CASE 
-                        WHEN imbalance > 0.8 THEN 0.40
-                        WHEN imbalance > 0.65 THEN 0.30
-                        WHEN imbalance > 0.5 THEN 0.20
-                        ELSE imbalance * 0.15
+                        WHEN imbalance > 0.9 THEN 0.30  // Tăng ngưỡng và giảm trọng số
+                        WHEN imbalance > 0.8 THEN 0.25
+                        WHEN imbalance > 0.7 THEN 0.15
+                        WHEN imbalance > 0.6 THEN 0.10
+                        ELSE imbalance * 0.08  // Giảm hệ số nhân
                     END +
                     
                     CASE 
-                        WHEN high_volume AND anomaly AND imbalance > 0.65 THEN 0.35
-                        WHEN high_volume AND anomaly AND imbalance > 0.5 THEN 0.25
-                        WHEN high_volume AND imbalance > 0.6 THEN 0.15
-                        WHEN high_volume THEN 0.05
+                        // Yêu cầu sự kết hợp mạnh mẽ hơn để coi là đáng ngờ
+                        WHEN high_volume AND anomaly AND imbalance > 0.8 THEN 0.30
+                        WHEN high_volume AND anomaly AND imbalance > 0.7 THEN 0.20
+                        WHEN high_volume AND imbalance > 0.7 THEN 0.10
+                        WHEN high_volume THEN 0.03
                         ELSE 0 
                     END +
                     
                     CASE 
-                        WHEN anomaly AND high_value AND imbalance > 0.6 THEN 0.40
-                        WHEN anomaly AND high_value AND imbalance > 0.4 THEN 0.30
-                        WHEN anomaly AND high_value THEN 0.20
-                        WHEN anomaly THEN 0.10
+                        // Thêm điều kiện khắt khe hơn
+                        WHEN anomaly AND high_value AND imbalance > 0.8 THEN 0.35
+                        WHEN anomaly AND high_value AND imbalance > 0.6 THEN 0.25
+                        WHEN anomaly AND high_value THEN 0.15
+                        WHEN anomaly AND imbalance > 0.7 THEN 0.08
+                        WHEN anomaly THEN 0.05
                         ELSE 0 
                     END +
                     
+                    // Giữ nguyên trọng số của gian lận đã biết vì đây là dấu hiệu mạnh mẽ
                     CASE WHEN a.known_fraud THEN 0.90 ELSE 0 END +
-                    CASE WHEN high_value AND only_sender AND imbalance > 0.5 THEN 0.25
-                         WHEN high_value AND only_sender THEN 0.12
-                         WHEN high_value THEN 0.07
+                    
+                    CASE
+                         WHEN high_value AND only_sender AND imbalance > 0.7 THEN 0.20
+                         WHEN high_value AND only_sender AND imbalance > 0.5 THEN 0.12
+                         WHEN high_value AND only_sender THEN 0.08
+                         WHEN high_value AND imbalance > 0.6 THEN 0.05
+                         WHEN high_value THEN 0.03
                          ELSE 0 
                     END AS base_score
                 
@@ -82,10 +89,10 @@ class PatternDetector:
             self._calculate_final_scores(session)
 
     def _detect_transaction_patterns(self, session):
-        """Phát hiện mẫu giao dịch bất thường"""
+        """Phát hiện mẫu giao dịch bất thường"""        
         transaction_pattern_query = """
             MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
-            WHERE tx.amount > 50000
+            WHERE tx.amount > 70000  // Tăng ngưỡng số tiền
             
             WITH sender, receiver, collect(tx) AS transactions,
                  sum(tx.amount) AS total_amount,
@@ -95,15 +102,17 @@ class PatternDetector:
                  sender.tx_imbalance AS sender_imbalance,
                  receiver.tx_imbalance AS receiver_imbalance
             
-            WHERE tx_count >= 2 AND total_amount > 80000 AND 
-                 ((sender_score > 0.6 AND sender_imbalance > 0.5) OR 
-                  (receiver_score > 0.6 AND receiver_imbalance > 0.5))
+            // Tăng ngưỡng và yêu cầu sự kết hợp của nhiều điều kiện
+            WHERE tx_count >= 3 AND total_amount > 100000 AND 
+                 ((sender_score > 0.7 AND sender_imbalance > 0.6 AND sender.tx_anomaly = true) OR 
+                  (receiver_score > 0.7 AND receiver_imbalance > 0.6 AND receiver.tx_anomaly = true))
             
             WITH sender, receiver, 
                  CASE 
-                     WHEN sender_score > 0.75 AND receiver_score > 0.6 THEN 0.18
-                     WHEN sender_score > 0.6 OR receiver_score > 0.6 THEN 0.12
-                     ELSE 0.08
+                     // Điều chỉnh giảm điểm tăng cường
+                     WHEN sender_score > 0.8 AND receiver_score > 0.7 THEN 0.15
+                     WHEN sender_score > 0.7 OR receiver_score > 0.7 THEN 0.10
+                     ELSE 0.05
                  END AS boost
             
             SET sender.relation_boost = COALESCE(sender.relation_boost, 0) + boost,
@@ -118,14 +127,14 @@ class PatternDetector:
 
     def _detect_cycles(self, session):
         """Phát hiện chu trình giao dịch"""
-        cycle_detection_query = """
-            MATCH path = (a:Account)-[r:SENT*2..4]->(a)
+        cycle_detection_query = """            MATCH path = (a:Account)-[r:SENT*2..4]->(a)
             WITH path, 
                  [node IN nodes(path) | node] AS cycle_nodes,
                  reduce(total = 0, r IN relationships(path) | total + r.amount) AS cycle_amount,
                  reduce(max_val = 0, r IN relationships(path) | CASE WHEN r.amount > max_val THEN r.amount ELSE max_val END) AS max_tx_amount
             
-            WHERE cycle_amount > 80000 AND max_tx_amount > 30000
+            // Tăng ngưỡng chu trình và giá trị giao dịch
+            WHERE cycle_amount > 100000 AND max_tx_amount > 40000
             
             WITH DISTINCT cycle_nodes, cycle_amount, max_tx_amount
             UNWIND cycle_nodes AS cycle_account
@@ -134,21 +143,23 @@ class PatternDetector:
                  count(CASE WHEN cycle_account.high_value_tx THEN 1 END) as high_value_txs,
                  avg(CASE WHEN cycle_account.tx_imbalance IS NOT NULL THEN cycle_account.tx_imbalance ELSE 0 END) as avg_imbalance
             
+            // Thêm điều kiện khắt khe hơn cho các chu trình giao dịch
             WHERE 
-                anomalies > 0 OR
-                high_value_txs > 0 AND     
-                cycle_account.tx_imbalance > 0.4 AND
-                avg_imbalance > 0.35
+                (anomalies > 0 AND high_value_txs > 0) OR  // Yêu cầu cả hai điều kiện 
+                (cycle_account.tx_imbalance > 0.7 AND     // Tăng ngưỡng mất cân bằng
+                avg_imbalance > 0.6)
             
             SET 
                 cycle_account.cycle_boost = CASE
-                    WHEN size(cycle_nodes) = 2 AND cycle_amount > 120000 THEN 0.45
-                    WHEN size(cycle_nodes) = 3 AND cycle_amount > 100000 THEN 0.35
-                    WHEN size(cycle_nodes) <= 4 AND cycle_amount > 80000 THEN 0.25
-                    ELSE 0.15
+                    // Giảm điểm tăng cường cho mỗi loại chu trình
+                    WHEN size(cycle_nodes) = 2 AND cycle_amount > 150000 THEN 0.35
+                    WHEN size(cycle_nodes) = 3 AND cycle_amount > 120000 THEN 0.25
+                    WHEN size(cycle_nodes) <= 4 AND cycle_amount > 100000 THEN 0.15
+                    ELSE 0.10
                 END,
                 cycle_account.known_fraud = CASE 
-                    WHEN size(cycle_nodes) <= 3 AND cycle_amount > 120000 THEN true
+                    // Chỉ đánh dấu là gian lận cho những chu trình rõ ràng
+                    WHEN size(cycle_nodes) <= 3 AND cycle_amount > 150000 AND max_tx_amount > 80000 THEN true
                     ELSE cycle_account.known_fraud 
                 END
             

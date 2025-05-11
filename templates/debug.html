@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chạy lại phân tích và Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #0055aa;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        #result {
+            margin-top: 15px;
+            padding: 10px;
+            border-left: 4px solid #0066cc;
+            background-color: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <h1>Công cụ chạy lại phân tích và debug số liệu</h1>
+    
+    <div class="card">
+        <div class="card-header">Chạy lại phân tích</div>
+        <p>Nhấn nút bên dưới để chạy lại thuật toán phân tích gian lận với các ngưỡng mới</p>
+        <button id="reanalyzeBtn">Chạy lại phân tích gian lận</button>
+        <div id="reanalyzeResult"></div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">Kiểm tra số liệu debug</div>
+        <p>Xem các số liệu hiện tại trong cơ sở dữ liệu với nhiều ngưỡng khác nhau</p>
+        <button id="debugBtn">Xem số liệu debug</button>
+        <div id="debugResult"></div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">Tính toán độ chính xác</div>
+        <table id="metricsTable">
+            <thead>
+                <tr>
+                    <th>Ngưỡng</th>
+                    <th>Giao dịch phát hiện</th>
+                    <th>True Positives</th>
+                    <th>Ground Truth</th>
+                    <th>Precision</th>
+                    <th>Recall</th>
+                    <th>F1-Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Sẽ được điền bằng JavaScript -->
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">Sau khi chạy lại phân tích</div>
+        <p>Sau khi chạy lại phân tích, hãy làm mới lại trang kết quả để xem thay đổi</p>
+        <a href="/results" target="_blank"><button>Đi đến trang Kết quả</button></a>
+    </div>
+    
+    <script>
+        document.getElementById('reanalyzeBtn').addEventListener('click', function() {
+            this.disabled = true;
+            this.textContent = 'Đang xử lý...';
+            const resultDiv = document.getElementById('reanalyzeResult');
+            resultDiv.innerHTML = '<p>Đang chạy phân tích, vui lòng đợi...</p>';
+            
+            fetch('/api/reanalyze', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                this.disabled = false;
+                this.textContent = 'Chạy lại phân tích gian lận';
+                if (data.success) {
+                    resultDiv.innerHTML = `<p style="color: green">✓ ${data.message}</p>`;
+                } else {
+                    resultDiv.innerHTML = `<p style="color: red">✗ ${data.message || data.error}</p>`;
+                }
+            })
+            .catch(error => {
+                this.disabled = false;
+                this.textContent = 'Chạy lại phân tích gian lận';
+                resultDiv.innerHTML = `<p style="color: red">✗ Lỗi: ${error}</p>`;
+            });
+        });
+        
+        document.getElementById('debugBtn').addEventListener('click', function() {
+            this.disabled = true;
+            this.textContent = 'Đang tải...';
+            const resultDiv = document.getElementById('debugResult');
+            resultDiv.innerHTML = '<p>Đang tải số liệu debug...</p>';
+            
+            fetch('/api/debug-metrics')
+            .then(response => response.json())
+            .then(data => {
+                this.disabled = false;
+                this.textContent = 'Xem số liệu debug';
+                
+                // Cấu hình
+                const config = data.config;
+                const metrics = data.debug_metrics;
+                
+                let html = `
+                    <h3>Cấu hình hiện tại</h3>
+                    <ul>
+                        <li>FRAUD_SCORE_THRESHOLD: ${config.FRAUD_SCORE_THRESHOLD}</li>
+                        <li>SUSPICIOUS_THRESHOLD: ${config.SUSPICIOUS_THRESHOLD}</li>
+                    </ul>
+                    
+                    <h3>Số liệu database</h3>
+                    <ul>
+                        <li>Tổng số tài khoản: ${metrics.total_accounts}</li>
+                        <li>Tổng số giao dịch: ${metrics.total_transactions}</li>
+                        <li>Giao dịch gian lận thực sự: ${metrics.real_fraud_transactions}</li>
+                    </ul>
+                    
+                    <h3>Tài khoản phát hiện tại các ngưỡng</h3>
+                    <ul>
+                        <li>Ngưỡng 0.5: ${metrics.fraud_accounts_05} tài khoản</li>
+                        <li>Ngưỡng 0.6: ${metrics.fraud_accounts_06} tài khoản</li>
+                        <li>Ngưỡng 0.7: ${metrics.fraud_accounts_07} tài khoản</li>
+                    </ul>
+                    
+                    <h3>Giao dịch phát hiện tại các ngưỡng</h3>
+                    <ul>
+                        <li>Ngưỡng 0.5: ${metrics.fraud_transactions_05} giao dịch</li>
+                        <li>Ngưỡng 0.6: ${metrics.fraud_transactions_06} giao dịch</li>
+                        <li>Ngưỡng 0.7: ${metrics.fraud_transactions_07} giao dịch</li>
+                    </ul>
+                `;
+                
+                resultDiv.innerHTML = html;
+                
+                // Update metrics table
+                const tbody = document.querySelector('#metricsTable tbody');
+                tbody.innerHTML = '';
+                
+                // Helper function to calculate metrics
+                function calculateMetrics(detected, truePositives, groundTruth) {
+                    let precision = 0;
+                    let recall = 0;
+                    let f1 = 0;
+                    
+                    if (detected > 0) precision = truePositives / detected;
+                    if (groundTruth > 0) recall = truePositives / groundTruth;
+                    if (precision + recall > 0) f1 = 2 * (precision * recall) / (precision + recall);
+                    
+                    return {
+                        precision: (precision * 100).toFixed(1) + '%',
+                        recall: (recall * 100).toFixed(1) + '%',
+                        f1: (f1 * 100).toFixed(1) + '%'
+                    };
+                }
+                
+                // Add rows for each threshold
+                const thresholds = [
+                    {name: '0.5', detected: metrics.fraud_transactions_05, tp: metrics.true_positives_05},
+                    {name: '0.6', detected: metrics.fraud_transactions_06, tp: metrics.true_positives_06},
+                    {name: '0.7', detected: metrics.fraud_transactions_07, tp: metrics.true_positives_07}
+                ];
+                
+                thresholds.forEach(threshold => {
+                    const row = document.createElement('tr');
+                    const ground_truth = metrics.real_fraud_transactions;
+                    const metrics_calc = calculateMetrics(threshold.detected, threshold.tp, ground_truth);
+                    
+                    row.innerHTML = `
+                        <td>${threshold.name}</td>
+                        <td>${threshold.detected}</td>
+                        <td>${threshold.tp}</td>
+                        <td>${ground_truth}</td>
+                        <td>${metrics_calc.precision}</td>
+                        <td>${metrics_calc.recall}</td>
+                        <td>${metrics_calc.f1}</td>
+                    `;
+                    
+                    tbody.appendChild(row);
+                });
+            })
+            .catch(error => {
+                this.disabled = false;
+                this.textContent = 'Xem số liệu debug';
+                resultDiv.innerHTML = `<p style="color: red">✗ Lỗi: ${error}</p>`;
+            });
+        });
+    </script>
+</body>
+</html>

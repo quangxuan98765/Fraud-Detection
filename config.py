@@ -14,6 +14,6 @@ DEFAULT_TARGET_EDGES = 193500
 DEFAULT_FRAUD_RATE = 0.00129
 
 # Fraud detection thresholds
-FRAUD_SCORE_THRESHOLD = 0.6     # Ngưỡng chính của điểm gian lận khi hiển thị giao dịch đáng ngờ
-SUSPICIOUS_THRESHOLD = 0.5      # Ngưỡng cho tài khoản đáng ngờ
-HIGH_RISK_THRESHOLD = 0.75      # Ngưỡng cho tài khoản nguy cơ cao
+FRAUD_SCORE_THRESHOLD = 0.7     # Tăng ngưỡng chính của điểm gian lận khi hiển thị giao dịch đáng ngờ
+SUSPICIOUS_THRESHOLD = 0.6      # Tăng ngưỡng cho tài khoản đáng ngờ
+HIGH_RISK_THRESHOLD = 0.8       # Tăng ngưỡng cho tài khoản nguy cơ cao

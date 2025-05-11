@@ -79,6 +79,10 @@ def analyze():
 def results():
     return render_template('results.html', fraud_threshold=FRAUD_SCORE_THRESHOLD)
 
+@views_bp.route('/debug')
+def debug():
+    return render_template('debug.html')
+
 @views_bp.route('/clear_database', methods=['POST'])
 def clear_database():
     try:

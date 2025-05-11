@@ -386,6 +386,75 @@ def get_network():
         print(f"Network API error: {str(e)}")
         return jsonify({"error": str(e), "nodes": [], "links": []})
 
+@api_bp.route('/reanalyze', methods=['POST'])
+def reanalyze():
+    try:
+        # Thực hiện phân tích lại
+        success = detector.analyze_fraud()
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Phân tích gian lận đã chạy thành công"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Có lỗi khi thực hiện phân tích gian lận"
+            })
+    except Exception as e:
+        print(f"Reanalyze API error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
+
+@api_bp.route('/debug-metrics')
+def debug_metrics():
+    try:
+        with detector.driver.session() as session:
+            # Truy vấn trực tiếp các ngưỡng và số lượng giao dịch
+            debug_info = session.run("""
+                MATCH (a:Account)
+                OPTIONAL MATCH (a)-[tx:SENT]->()
+                
+                RETURN count(DISTINCT a) AS total_accounts,
+                       count(DISTINCT tx) AS total_transactions,
+                       count(DISTINCT CASE WHEN a.fraud_score > 0.7 THEN a END) AS fraud_accounts_07,
+                       count(DISTINCT CASE WHEN a.fraud_score > 0.6 THEN a END) AS fraud_accounts_06,
+                       count(DISTINCT CASE WHEN a.fraud_score > 0.5 THEN a END) AS fraud_accounts_05,
+                       
+                       count(DISTINCT CASE WHEN a.fraud_score > 0.7 AND tx IS NOT NULL THEN tx END) AS fraud_transactions_07,
+                       count(DISTINCT CASE WHEN a.fraud_score > 0.6 AND tx IS NOT NULL THEN tx END) AS fraud_transactions_06,
+                       count(DISTINCT CASE WHEN a.fraud_score > 0.5 AND tx IS NOT NULL THEN tx END) AS fraud_transactions_05,
+                       
+                       count(DISTINCT CASE WHEN tx.is_fraud = 1 THEN tx END) AS real_fraud_transactions,
+                       
+                       SUM(CASE WHEN tx.is_fraud = 1 AND (a.fraud_score > 0.7) THEN 1 ELSE 0 END) AS true_positives_07,
+                       SUM(CASE WHEN tx.is_fraud = 1 AND (a.fraud_score > 0.6) THEN 1 ELSE 0 END) AS true_positives_06,
+                       SUM(CASE WHEN tx.is_fraud = 1 AND (a.fraud_score > 0.5) THEN 1 ELSE 0 END) AS true_positives_05                       
+            """).single()
+            
+            # Convert Neo4j Record to a Python dictionary
+            metrics_dict = {}
+            if debug_info:
+                for key in debug_info.keys():
+                    metrics_dict[key] = debug_info[key]
+            
+            # Truy vấn cấu hình hiện tại
+            config_info = {
+                "FRAUD_SCORE_THRESHOLD": FRAUD_SCORE_THRESHOLD,
+                "SUSPICIOUS_THRESHOLD": SUSPICIOUS_THRESHOLD
+            }
+            
+            return jsonify({
+                "debug_metrics": metrics_dict,
+                "config": config_info
+            })
+            
+    except Exception as e:
+        print(f"Debug metrics API error: {str(e)}")
+        return jsonify({"error": str(e)})
+
 @api_bp.route('/community/<community_id>')
 def get_community_details(community_id):
     try:
