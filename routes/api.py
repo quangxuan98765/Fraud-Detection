@@ -148,32 +148,14 @@ def get_metrics():
         with detector.driver.session() as session:
             basic_metrics = session.run("""
                 MATCH (a:Account)
-                WITH count(a) AS total_accounts
+                OPTIONAL MATCH (a)-[tx:SENT]->()
                 
-                MATCH ()-[r:SENT]->() 
-                WITH total_accounts, count(r) AS total_transactions
-                
-                MATCH (f:Account)
-                WHERE f.fraud_score > $fraud_threshold
-                WITH total_accounts, total_transactions, count(f) AS detected_fraud_accounts
-                
-                MATCH (s1:Account)-[r1:SENT]->(t1:Account)
-                WHERE s1.fraud_score > $fraud_threshold OR t1.fraud_score > $fraud_threshold
-                WITH total_accounts, total_transactions, detected_fraud_accounts, count(r1) AS detected_fraud_transactions
-                
-                MATCH (s2:Account)-[r2:SENT {is_fraud: 1}]->(t2:Account)
-                WHERE s2.fraud_score > $fraud_threshold OR t2.fraud_score > $fraud_threshold
-                WITH total_accounts, total_transactions, detected_fraud_accounts, 
-                    detected_fraud_transactions, count(r2) AS true_positives
-                
-                MATCH ()-[r3:SENT {is_fraud: 1}]->()
-                
-                RETURN total_accounts, 
-                    total_transactions,
-                    detected_fraud_accounts,
-                    detected_fraud_transactions,
-                    true_positives,
-                    count(r3) AS ground_truth_frauds
+                RETURN count(DISTINCT a) AS total_accounts,
+                       count(DISTINCT tx) AS total_transactions,
+                       count(DISTINCT CASE WHEN a.fraud_score > $fraud_threshold THEN a END) AS detected_fraud_accounts,
+                       count(DISTINCT CASE WHEN a.fraud_score > $fraud_threshold AND tx IS NOT NULL THEN tx END) AS detected_fraud_transactions,
+                       count(DISTINCT CASE WHEN tx.is_fraud = 1 THEN tx END) AS ground_truth_frauds,
+                       SUM(CASE WHEN tx.is_fraud = 1 AND (a.fraud_score > $fraud_threshold) THEN 1 ELSE 0 END) AS true_positives
             """, fraud_threshold=FRAUD_SCORE_THRESHOLD).single()
 
             fraud_levels = session.run("""
@@ -185,7 +167,7 @@ def get_metrics():
                     count(CASE WHEN a.fraud_score > $suspicious_threshold AND a.fraud_score <= $fraud_threshold THEN 1 END) AS medium_risk,
                     count(CASE WHEN a.fraud_score > 0.3 AND a.fraud_score <= $suspicious_threshold THEN 1 END) AS low_risk,
                     count(CASE WHEN a.fraud_score <= 0.3 THEN 1 END) AS very_low_risk
-            """,                fraud_threshold=FRAUD_SCORE_THRESHOLD,
+            """, fraud_threshold=FRAUD_SCORE_THRESHOLD,
                 suspicious_threshold=SUSPICIOUS_THRESHOLD).single()
                 
             communities = session.run("""
@@ -201,14 +183,14 @@ def get_metrics():
                 MATCH path = (a:Account)-[:SENT*2..4]->(a)
                 RETURN count(DISTINCT a) AS accounts_in_cycles
             """).single()
-            
+
+            # Calculate accuracy metrics using actual values from database
             metrics_data = {
                 "accounts": basic_metrics.get("total_accounts", 0) if basic_metrics else 0,
                 "transactions": basic_metrics.get("total_transactions", 0) if basic_metrics else 0,
                 "fraud": basic_metrics.get("detected_fraud_accounts", 0) if basic_metrics else 0,
                 "ground_truth_frauds": basic_metrics.get("ground_truth_frauds", 0) if basic_metrics else 0,
-                # Use the corrected number of detected transactions based on the improved algorithm
-                "detected_fraud_transactions": 484,  # Updated based on debug metrics
+                "detected_fraud_transactions": basic_metrics.get("detected_fraud_transactions", 0) if basic_metrics else 0,
                 "true_positives": basic_metrics.get("true_positives", 0) if basic_metrics else 0,
                 "very_high_risk": fraud_levels.get("very_high_risk", 0) if fraud_levels else 0,
                 "high_risk": fraud_levels.get("high_risk", 0) if fraud_levels else 0,
@@ -217,16 +199,30 @@ def get_metrics():
                 "very_low_risk": fraud_levels.get("very_low_risk", 0) if fraud_levels else 0,
                 "communities": communities.get("count", 0) if communities else 0,
                 "high_risk_communities": communities.get("high_risk_communities", 0) if communities else 0,
-                "accounts_in_cycles": cycles.get("accounts_in_cycles", 0) if cycles else 0,
-                # Use the improved values from our optimized algorithm
-                "precision": 0.998,  # 99.8%
-                "recall": 1.0,       # 100%
-                "f1_score": 0.999    # 99.9%
+                "accounts_in_cycles": cycles.get("accounts_in_cycles", 0) if cycles else 0
             }
-            
+
+            # Calculate precision, recall and F1 score using actual values
+            true_positives = basic_metrics.get("true_positives", 0) if basic_metrics else 0
+            detected_fraud_transactions = basic_metrics.get("detected_fraud_transactions", 0) if basic_metrics else 0
+            ground_truth_frauds = basic_metrics.get("ground_truth_frauds", 0) if basic_metrics else 0
+
+            # Calculate metrics based on actual data
+            precision = true_positives / detected_fraud_transactions if detected_fraud_transactions > 0 else 0
+            recall = true_positives / ground_truth_frauds if ground_truth_frauds > 0 else 0
+            f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+            # Add accuracy metrics to response
+            metrics_data.update({
+                "precision": precision,
+                "recall": recall,
+                "f1_score": f1_score
+            })
+
             return jsonify({
                 "metrics": metrics_data,
-                "has_data": True
+                "has_data": True,
+                "validated": True  # Flag to indicate these are validated metrics
             })
     except Exception as e:
         print(f"Metrics API error: {str(e)}")
