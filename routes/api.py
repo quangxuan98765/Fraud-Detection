@@ -149,13 +149,14 @@ def get_metrics():
             basic_metrics = session.run("""
                 MATCH (a:Account)
                 OPTIONAL MATCH (a)-[tx:SENT]->()
-                
+                  WITH a, tx
+
                 RETURN count(DISTINCT a) AS total_accounts,
                        count(DISTINCT tx) AS total_transactions,
                        count(DISTINCT CASE WHEN a.fraud_score > $fraud_threshold THEN a END) AS detected_fraud_accounts,
-                       count(DISTINCT CASE WHEN a.fraud_score > $fraud_threshold AND tx IS NOT NULL THEN tx END) AS detected_fraud_transactions,
-                       count(DISTINCT CASE WHEN tx.is_fraud = 1 THEN tx END) AS ground_truth_frauds,
-                       SUM(CASE WHEN tx.is_fraud = 1 AND (a.fraud_score > $fraud_threshold) THEN 1 ELSE 0 END) AS true_positives
+                       count(DISTINCT CASE WHEN tx IS NOT NULL AND a.fraud_score > $fraud_threshold THEN tx END) AS detected_fraud_transactions,
+                       count(DISTINCT CASE WHEN tx.is_fraud = 1 AND a.fraud_score > $fraud_threshold THEN tx END) AS true_positives,
+                       count(DISTINCT CASE WHEN tx.is_fraud = 1 THEN tx END) AS ground_truth_frauds
             """, fraud_threshold=FRAUD_SCORE_THRESHOLD).single()
 
             fraud_levels = session.run("""
@@ -174,7 +175,7 @@ def get_metrics():
                 MATCH (a:Account)
                 WHERE a.community IS NOT NULL 
                 WITH a.community AS community, count(a) AS size, avg(a.fraud_score) AS avg_score
-                WHERE size >= 2  // Chỉ đếm cộng đồng có ít nhất 2 tài khoản
+                WHERE size >= 2  // Only count communities with at least 2 accounts
                 RETURN count(DISTINCT community) AS count,
                        count(CASE WHEN avg_score > $fraud_threshold THEN 1 END) AS high_risk_communities
             """, fraud_threshold=FRAUD_SCORE_THRESHOLD).single()
@@ -184,7 +185,7 @@ def get_metrics():
                 RETURN count(DISTINCT a) AS accounts_in_cycles
             """).single()
 
-            # Calculate accuracy metrics using actual values from database
+            # Calculate metrics using actual values from database
             metrics_data = {
                 "accounts": basic_metrics.get("total_accounts", 0) if basic_metrics else 0,
                 "transactions": basic_metrics.get("total_transactions", 0) if basic_metrics else 0,
@@ -200,19 +201,19 @@ def get_metrics():
                 "communities": communities.get("count", 0) if communities else 0,
                 "high_risk_communities": communities.get("high_risk_communities", 0) if communities else 0,
                 "accounts_in_cycles": cycles.get("accounts_in_cycles", 0) if cycles else 0
-            }
-
-            # Calculate precision, recall and F1 score using actual values
+            }            # Calculate precision, recall and F1 score using actual values
             true_positives = basic_metrics.get("true_positives", 0) if basic_metrics else 0
             detected_fraud_transactions = basic_metrics.get("detected_fraud_transactions", 0) if basic_metrics else 0
             ground_truth_frauds = basic_metrics.get("ground_truth_frauds", 0) if basic_metrics else 0
 
-            # Calculate metrics based on actual data
+            # Calculate metrics using same formula as debug.html
             precision = true_positives / detected_fraud_transactions if detected_fraud_transactions > 0 else 0
             recall = true_positives / ground_truth_frauds if ground_truth_frauds > 0 else 0
             f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+            
+            print(f"Metrics calculation: TP={true_positives}, Detected={detected_fraud_transactions}, GT={ground_truth_frauds}")
+            print(f"Results: Precision={precision*100:.1f}%, Recall={recall*100:.1f}%, F1={f1_score*100:.1f}%")
 
-            # Add accuracy metrics to response
             metrics_data.update({
                 "precision": precision,
                 "recall": recall,

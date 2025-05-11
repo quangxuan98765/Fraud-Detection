@@ -25,23 +25,77 @@ class FraudDetector:
     def import_data(self, csv_path):
         """Import dữ liệu sử dụng API Neo4j thay vì LOAD CSV"""
         return self.data_importer.import_data(csv_path)
-        
+    
     def finalize_and_evaluate(self):
         """Chuẩn hóa điểm và đánh giá kết quả"""
-        # Sử dụng các phương thức tương đương từ các module đã có
         with self.db_manager.driver.session() as session:
             print("🔍 Đang hoàn tất phân tích...")
             
             # Sử dụng PatternDetector để tính điểm cuối cùng
             self.pattern_detector.calculate_fraud_scores()
             
-            # Đánh dấu tài khoản gian lận thực sự
-            print("  Đang đánh dấu tài khoản gian lận thực sự...")
+            # Đánh dấu tài khoản có rủi ro cao dựa trên nhiều tiêu chí
+            print("  Đang đánh dấu tài khoản có rủi ro cao...")
             session.run("""
                 MATCH (a:Account)
-                WHERE exists((a)-[:SENT {is_fraud: 1}]->()) OR exists((a)<-[:SENT {is_fraud: 1}]-())
-                SET a.real_fraud = true
+                WHERE 
+                    (a.fraud_score > 0.7) OR
+                    (a.tx_anomaly = true AND a.tx_imbalance > 0.7) OR
+                    (a.cycle_boost > 0.3 AND a.pagerank_score > 0.6) OR
+                    (a.similarity_score > 0.7 AND a.base_score > 0.6) OR 
+                    (a.pagerank_score > 0.6 AND a.tx_imbalance > 0.7 AND a.cycle_boost > 0.2)                SET a.high_risk = true,
+                     a.risk_factors = CASE WHEN a.fraud_score > 0.7 THEN ['high_fraud_score']
+                         + CASE WHEN a.tx_anomaly = true AND a.tx_imbalance > 0.7 THEN ['transaction_anomaly'] ELSE [] END
+                         + CASE WHEN a.cycle_boost > 0.3 AND a.pagerank_score > 0.6 THEN ['suspicious_cycle'] ELSE [] END
+                         + CASE WHEN a.similarity_score > 0.7 AND a.base_score > 0.6 THEN ['similar_to_suspicious'] ELSE [] END
+                         + CASE WHEN a.pagerank_score > 0.6 AND a.tx_imbalance > 0.7 AND a.cycle_boost > 0.2 THEN ['combined_factors'] ELSE [] END
+                     ELSE
+                         CASE WHEN a.tx_anomaly = true AND a.tx_imbalance > 0.7 THEN ['transaction_anomaly'] ELSE [] END
+                         + CASE WHEN a.cycle_boost > 0.3 AND a.pagerank_score > 0.6 THEN ['suspicious_cycle'] ELSE [] END
+                         + CASE WHEN a.similarity_score > 0.7 AND a.base_score > 0.6 THEN ['similar_to_suspicious'] ELSE [] END
+                         + CASE WHEN a.pagerank_score > 0.6 AND a.tx_imbalance > 0.7 AND a.cycle_boost > 0.2 THEN ['combined_factors'] ELSE [] END
+                     END
             """)
+            
+            # Validate detection effectiveness
+            print("  Đang kiểm tra hiệu quả phát hiện...")
+            validation = session.run("""
+                MATCH (a:Account)
+                WHERE a.high_risk = true
+                
+                WITH collect(DISTINCT a.risk_factors) AS all_factors,
+                     count(DISTINCT a) AS flagged_accounts,
+                     count(DISTINCT CASE WHEN size(a.risk_factors) > 1 THEN a END) AS multi_factor,
+                     count(DISTINCT CASE WHEN 'high_fraud_score' IN a.risk_factors THEN a END) AS fraud_score,
+                     count(DISTINCT CASE WHEN 'transaction_anomaly' IN a.risk_factors THEN a END) AS tx_anomaly,
+                     count(DISTINCT CASE WHEN 'suspicious_cycle' IN a.risk_factors THEN a END) AS cycles,
+                     count(DISTINCT CASE WHEN 'similar_to_suspicious' IN a.risk_factors THEN a END) AS similar,
+                     count(DISTINCT CASE WHEN 'combined_factors' IN a.risk_factors THEN a END) AS combined
+                RETURN 
+                    flagged_accounts,
+                    multi_factor,
+                    1.0 * multi_factor / flagged_accounts AS multi_factor_ratio,
+                    fraud_score, tx_anomaly, cycles, similar, combined
+            """).single()
+            
+            if validation:
+                flagged = validation.get("flagged_accounts", 0)
+                multi = validation.get("multi_factor", 0)
+                multi_ratio = validation.get("multi_factor_ratio", 0)
+                fraud_score = validation.get("fraud_score", 0)
+                tx_anomaly = validation.get("tx_anomaly", 0)
+                cycles = validation.get("cycles", 0)
+                similar = validation.get("similar", 0)
+                combined = validation.get("combined", 0)
+                
+                print(f"\nKết quả phát hiện gian lận:")
+                print(f"  Tổng số tài khoản đáng ngờ: {flagged}")
+                print(f"  - Có nhiều yếu tố: {multi} ({multi_ratio:.1%})")
+                print(f"  - Điểm gian lận cao: {fraud_score}")
+                print(f"  - Giao dịch bất thường: {tx_anomaly}")
+                print(f"  - Nằm trong chu trình: {cycles}")
+                print(f"  - Tương tự tài khoản khác: {similar}")
+                print(f"  - Kết hợp nhiều yếu tố: {combined}")
             
             return True
 
