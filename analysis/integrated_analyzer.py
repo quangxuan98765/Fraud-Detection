@@ -1,5 +1,6 @@
 from analysis.account_analyzer import AccountAnalyzer
 from analysis.pattern_detector import PatternDetector
+from queries.metrics_queries import MetricsQueries
 
 class IntegratedAnalyzer:
     """Combines all enhanced detection algorithms into a unified analysis pipeline"""
@@ -8,6 +9,7 @@ class IntegratedAnalyzer:
         self.driver = driver
         self.enhanced_account_analyzer = AccountAnalyzer(driver)
         self.advanced_pattern_detector = PatternDetector(driver)
+        self.metrics_queries = MetricsQueries()
         
     def perform_comprehensive_analysis(self):
         """Run the complete enhanced analysis pipeline"""
@@ -53,38 +55,7 @@ class IntegratedAnalyzer:
             
     def _calculate_metrics(self, session):
         """Calculate and display the effectiveness metrics of the fraud detection"""
-        metrics = session.run("""
-            MATCH (a:Account)
-            WITH
-                count(a) AS total_accounts,
-                count(CASE WHEN a.is_fraud = true THEN a END) AS actual_fraud,
-                count(CASE WHEN a.fraud_score > 0.5 THEN a END) AS detected_high_risk,
-                count(CASE WHEN a.is_fraud = true AND a.fraud_score > 0.5 THEN a END) AS true_positives,
-                count(CASE WHEN a.is_fraud = false AND a.fraud_score > 0.5 THEN a END) AS false_positives,
-                count(CASE WHEN a.is_fraud = true AND a.fraud_score <= 0.5 THEN a END) AS false_negatives
-            
-            RETURN 
-                total_accounts,
-                detected_high_risk,
-                actual_fraud,
-                true_positives,
-                false_positives,
-                false_negatives,
-                
-                // Calculate precision, recall and F1
-                CASE WHEN detected_high_risk > 0 
-                     THEN 1.0 * true_positives / detected_high_risk 
-                     ELSE 0 END AS precision,
-                     
-                CASE WHEN actual_fraud > 0 
-                     THEN 1.0 * true_positives / actual_fraud 
-                     ELSE 0 END AS recall,
-                     
-                CASE WHEN (1.0 * true_positives / detected_high_risk + 1.0 * true_positives / actual_fraud) > 0
-                     THEN 2.0 * (1.0 * true_positives / detected_high_risk) * (1.0 * true_positives / actual_fraud) / 
-                          ((1.0 * true_positives / detected_high_risk) + (1.0 * true_positives / actual_fraud))
-                     ELSE 0 END AS f1_score
-        """).single()
+        metrics = session.run(self.metrics_queries.CALCULATE_METRICS).single()
         
         if metrics:
             total = metrics.get("total_accounts", 0)
@@ -113,23 +84,7 @@ class IntegratedAnalyzer:
             thresholds = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
             
             for threshold in thresholds:
-                threshold_metrics = session.run("""
-                    MATCH (a:Account)
-                    WITH
-                        count(a) AS total_accounts,
-                        count(CASE WHEN a.is_fraud = true THEN a END) AS actual_fraud,
-                        count(CASE WHEN a.fraud_score > $threshold THEN a END) AS detected_high_risk,
-                        count(CASE WHEN a.is_fraud = true AND a.fraud_score > $threshold THEN a END) AS true_positives
-                    
-                    RETURN 
-                        detected_high_risk,
-                        1.0 * true_positives / detected_high_risk AS precision,
-                        1.0 * true_positives / actual_fraud AS recall,
-                        CASE WHEN (true_positives / detected_high_risk + true_positives / actual_fraud) > 0
-                            THEN 2.0 * (true_positives / detected_high_risk) * (true_positives / actual_fraud) / 
-                                 ((true_positives / detected_high_risk) + (true_positives / actual_fraud))
-                            ELSE 0 END AS f1_score
-                """, threshold=threshold).single()
+                threshold_metrics = session.run(self.metrics_queries.THRESHOLD_METRICS, threshold=threshold).single()
                 
                 if threshold_metrics:
                     t_detected = threshold_metrics.get("detected_high_risk", 0)
@@ -141,22 +96,7 @@ class IntegratedAnalyzer:
                           f"Recall: {t_recall:.2%}, F1: {t_f1:.2%}")
             
             # Community-based metrics
-            community_metrics = session.run("""
-                MATCH (a:Account)
-                WHERE a.community IS NOT NULL
-                WITH a.community AS community,
-                     count(a) AS community_size,
-                     count(CASE WHEN a.is_fraud = true THEN a END) AS fraud_count,
-                     count(CASE WHEN a.fraud_score > 0.5 THEN a END) AS flagged_count
-                WHERE community_size > 2  // Focus on communities with at least 3 members
-                
-                RETURN count(community) AS community_count,
-                       sum(CASE WHEN 1.0 * fraud_count / community_size > 0.3 THEN 1 ELSE 0 END) AS high_fraud_communities,
-                       sum(CASE WHEN 1.0 * flagged_count / community_size > 0.3 THEN 1 ELSE 0 END) AS high_risk_communities,
-                       avg(community_size) AS avg_community_size,
-                       avg(1.0 * fraud_count / community_size) AS avg_fraud_ratio,
-                       avg(1.0 * flagged_count / community_size) AS avg_flagged_ratio
-            """).single()
+            community_metrics = session.run(self.metrics_queries.COMMUNITY_METRICS).single()
             
             if community_metrics:
                 community_count = community_metrics.get("community_count", 0)
