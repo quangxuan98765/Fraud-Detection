@@ -3,7 +3,24 @@ from config import FRAUD_SCORE_THRESHOLD, SUSPICIOUS_THRESHOLD, HIGH_RISK_THRESH
 class PatternDetector:
     def __init__(self, driver):
         self.driver = driver
-        
+
+    def analyze_fraud(self):
+        with self.driver.session() as session:
+            # First detect complex patterns
+            print("Detecting fraud patterns...")
+            self.detect_specialized_patterns(session)
+
+            # Then analyze transaction velocity
+            self.analyze_transaction_velocity(session)
+
+            # Calculate initial scores using ensemble
+            self.calculate_fraud_scores()
+
+            # Apply final calibration
+            self.calculate_final_risk_score(session)
+
+            return True
+
     def calculate_fraud_scores(self):
         """Calculate optimized fraud scores using ensemble methods and improved weighting"""
         with self.driver.session() as session:
@@ -16,16 +33,16 @@ class PatternDetector:
                       a.model1_score, a.model2_score, a.model3_score, a.ensemble_score
             """)
             
-            # 2. Identify highest-confidence fraud patterns
+            # 2. Identify highest-confidence fraud patterns with stricter criteria
             session.run("""
                 MATCH (s:Account)-[r:SENT]->(t:Account)
-                WHERE r.amount > 150000 AND 
+                WHERE r.amount > 200000 AND  // Increased amount threshold
                     (
                         // Strong structural indicators
-                        (s.pagerank_score > 0.6 AND t.pagerank_score > 0.6) OR
+                        (s.pagerank_score > 0.75 AND t.pagerank_score > 0.75) OR  // Increased threshold
                         // Strong behavioral indicators  
-                        (s.tx_anomaly = true AND t.tx_anomaly = true AND r.amount > 180000) OR
-                        // Strong imbalance indicators
+                        (s.tx_anomaly = true AND t.tx_anomaly = true AND r.amount > 250000) OR  // Increased amount
+                        // Strong imbalance indicators with multiple signals
                         (s.tx_imbalance > 0.8 AND t.tx_imbalance > 0.8)
                     )
                 SET s.high_confidence_pattern = true,
@@ -51,40 +68,42 @@ class PatternDetector:
                     COALESCE(a.cycle_boost, 0) AS cycle_boost,
                     COALESCE(a.relation_boost, 0) AS relation_boost,
                     COALESCE(a.high_confidence_pattern, false) AS high_confidence
-                
-                // Model 1: Weight network structure heavily
+                  // Model 1: Weight network structure heavily
                 WITH a, 
-                    // Network metrics (45% weight)
-                    (pagerank * 0.20 +
-                     degree * 0.10 + 
-                     similarity * 0.15) * 0.45 +
+                    // Network metrics (25% weight) - reduced from 35%
+                    (pagerank * 0.10 +
+                     degree * 0.08 + 
+                     similarity * 0.07) * 0.25 +
                     
                     // Transaction patterns (35% weight)
                     (CASE 
+                        WHEN imbalance > 0.95 THEN 0.35  // Increased thresholds
                         WHEN imbalance > 0.85 THEN 0.25
-                        WHEN imbalance > 0.75 THEN 0.20
-                        WHEN imbalance > 0.65 THEN 0.15
-                        WHEN imbalance > 0.55 THEN 0.10
-                        ELSE imbalance * 0.08
+                        WHEN imbalance > 0.75 THEN 0.15
+                        WHEN imbalance > 0.65 THEN 0.08
+                        ELSE imbalance * 0.05
                      END +
                      CASE 
+                        WHEN amount_imbalance > 0.95 THEN 0.15
                         WHEN amount_imbalance > 0.85 THEN 0.10
-                        WHEN amount_imbalance > 0.75 THEN 0.08
-                        WHEN amount_imbalance > 0.65 THEN 0.06
-                        WHEN amount_imbalance > 0.55 THEN 0.04
-                        ELSE amount_imbalance * 0.03
+                        WHEN amount_imbalance > 0.75 THEN 0.06
+                        WHEN amount_imbalance > 0.65 THEN 0.03
+                        ELSE amount_imbalance * 0.02
                      END) * 0.35 +
                     
-                    // Behavioral flags (20% weight)
-                    (CASE WHEN anomaly THEN 0.10 ELSE 0 END +
-                     CASE WHEN high_volume THEN 0.05 ELSE 0 END +
-                     CASE WHEN high_value THEN 0.06 ELSE 0 END +
-                     CASE WHEN potential_fraud THEN 0.40 ELSE 0 END +
-                     CASE WHEN potential_mule THEN 0.30 ELSE 0 END +
-                     CASE WHEN suspected_fraud THEN 0.35 ELSE 0 END +
+                    // Behavioral flags (40% weight) - increased from 25%
+                    (CASE WHEN anomaly AND high_value THEN 0.25 ELSE 
+                         CASE WHEN anomaly THEN 0.15
+                         WHEN high_value THEN 0.10 
+                         ELSE 0 END
+                     END +
+                     CASE WHEN high_volume THEN 0.08 ELSE 0 END +
+                     CASE WHEN potential_fraud THEN 0.50 ELSE 0 END +
+                     CASE WHEN potential_mule THEN 0.40 ELSE 0 END +
+                     CASE WHEN suspected_fraud THEN 0.45 ELSE 0 END +
                      CASE WHEN high_confidence THEN 0.50 ELSE 0 END +
-                     cycle_boost * 0.50 +
-                     relation_boost * 0.40) * 0.20 AS model1_score
+                     cycle_boost * 0.40 +
+                     relation_boost * 0.35) * 0.40 AS model1_score
                 
                 SET a.model1_score = model1_score
                 RETURN count(a) AS processed_count
@@ -112,43 +131,47 @@ class PatternDetector:
                     COALESCE(a.concentrated_out, false) AS concentrated_out,
                     COALESCE(a.funnel_pattern, false) AS funnel_pattern,
                     COALESCE(a.fan_out_pattern, false) AS fan_out_pattern
-                
-                // Model 2: Weight behavioral patterns heavily
+                  // Model 2: Weight behavioral patterns heavily
                 WITH a, 
-                    // Network metrics (25% weight)
-                    (pagerank * 0.08 +
-                     degree * 0.07 + 
-                     similarity * 0.10) * 0.25 +
+                    // Network metrics (15% weight) - reduced from 20%
+                    (pagerank * 0.05 +
+                     degree * 0.05 + 
+                     similarity * 0.05) * 0.15 +
                     
-                    // Transaction patterns (20% weight)
+                    // Transaction patterns (30% weight) - increased from 25%
                     (CASE 
-                        WHEN imbalance > 0.80 THEN 0.18
-                        WHEN imbalance > 0.70 THEN 0.15
-                        WHEN imbalance > 0.60 THEN 0.12
-                        WHEN imbalance > 0.50 THEN 0.08
-                        ELSE imbalance * 0.07
+                        WHEN imbalance > 0.95 THEN 0.25
+                        WHEN imbalance > 0.85 THEN 0.20
+                        WHEN imbalance > 0.75 THEN 0.15
+                        WHEN imbalance > 0.65 THEN 0.10
+                        ELSE imbalance * 0.05
                      END +
                      CASE 
-                        WHEN amount_imbalance > 0.80 THEN 0.08
-                        WHEN amount_imbalance > 0.70 THEN 0.06
-                        WHEN amount_imbalance > 0.60 THEN 0.04
-                        WHEN amount_imbalance > 0.50 THEN 0.02
+                        WHEN amount_imbalance > 0.95 THEN 0.12
+                        WHEN amount_imbalance > 0.85 THEN 0.09
+                        WHEN amount_imbalance > 0.75 THEN 0.06
+                        WHEN amount_imbalance > 0.65 THEN 0.03
                         ELSE amount_imbalance * 0.02
-                     END) * 0.20 +
+                     END) * 0.30 +
                     
-                    // Behavioral flags (55% weight)
-                    (CASE WHEN anomaly THEN 0.15 ELSE 0 END +
-                     CASE WHEN high_volume THEN 0.08 ELSE 0 END +
-                     CASE WHEN high_value THEN 0.12 ELSE 0 END +
-                     CASE WHEN potential_fraud THEN 0.35 ELSE 0 END +
-                     CASE WHEN potential_mule THEN 0.32 ELSE 0 END +
-                     CASE WHEN suspected_fraud THEN 0.30 ELSE 0 END +
-                     CASE WHEN high_confidence THEN 0.45 ELSE 0 END +
-                     CASE WHEN concentrated_out THEN 0.18 ELSE 0 END +
-                     CASE WHEN funnel_pattern THEN 0.22 ELSE 0 END +
-                     CASE WHEN fan_out_pattern THEN 0.20 ELSE 0 END +
-                     cycle_boost * 0.38 +
-                     relation_boost * 0.35) * 0.55 AS model2_score
+                    // Behavioral patterns (55% weight)
+                    (CASE WHEN anomaly AND high_value THEN 0.30 ELSE
+                         CASE WHEN anomaly THEN 0.20
+                         WHEN high_value THEN 0.15
+                         ELSE 0 END
+                     END +
+                     CASE WHEN high_volume THEN 0.10 ELSE 0 END +
+                     CASE WHEN potential_fraud THEN 0.45 ELSE 0 END +
+                     CASE WHEN potential_mule THEN 0.40 ELSE 0 END +
+                     CASE WHEN suspected_fraud THEN 0.35 ELSE 0 END +
+                     CASE WHEN high_confidence THEN 0.55 ELSE 0 END +
+                     CASE WHEN concentrated_out THEN 0.25 ELSE 0 END +
+                     CASE WHEN funnel_pattern AND high_value THEN 0.35
+                          WHEN funnel_pattern THEN 0.25 ELSE 0 END +
+                     CASE WHEN fan_out_pattern AND high_value THEN 0.30
+                          WHEN fan_out_pattern THEN 0.20 ELSE 0 END +
+                     cycle_boost * 0.35 +
+                     relation_boost * 0.30) * 0.55 AS model2_score
                 
                 SET a.model2_score = model2_score
                 RETURN count(a) AS processed_count
@@ -275,17 +298,30 @@ class PatternDetector:
                          ELSE 'Complex Patterns'
                      END AS feature_importance
                 
-                // Final ensemble score: weighted average of models
-                // If confidence is low, be more conservative (reduce score)
+                // Final ensemble score with stricter confidence calibration
                 WITH a, m1_score, m2_score, m3_score, confidence_level, feature_importance,
-                     (m1_score * 0.30 + m2_score * 0.35 + m3_score * 0.35) * 
+                     (m1_score * 0.25 + m2_score * 0.35 + m3_score * 0.40) * 
                      CASE 
-                         WHEN confidence_level < 0.5 THEN confidence_level * 1.3  // Scale down more for low confidence
+                         WHEN confidence_level < 0.4 THEN confidence_level * 0.7  // More aggressive scaling for low confidence
+                         WHEN confidence_level < 0.6 THEN confidence_level * 0.85 // Moderate scaling for medium confidence
                          ELSE confidence_level
                      END AS ensemble_score
                 
-                // Set final scores and metadata
-                SET a.optimized_score = ensemble_score,
+                // Add high-confidence boost only for strong signals
+                WITH a, ensemble_score, confidence_level, feature_importance,
+                     CASE
+                         WHEN confidence_level > 0.8 AND ensemble_score > 0.75 THEN 0.15
+                         WHEN confidence_level > 0.7 AND ensemble_score > 0.70 THEN 0.10
+                         WHEN confidence_level > 0.6 AND ensemble_score > 0.65 THEN 0.05
+                         ELSE 0
+                     END as confidence_boost
+                
+                // Set final scores with confidence boost
+                SET a.optimized_score = 
+                    CASE
+                        WHEN ensemble_score + confidence_boost > 0.95 THEN 0.95  // Cap maximum score
+                        ELSE ensemble_score + confidence_boost
+                    END,
                     a.confidence_level = confidence_level,
                     a.feature_importance = feature_importance,
                     a.ensemble_score = ensemble_score
@@ -361,19 +397,27 @@ class PatternDetector:
         """
         
         # 2. Detect "funnel and disperse" patterns (collect and distribute funds)
-        funnel_disperse_query = """
-            // Find accounts that receive from many sources and send to many destinations
+        funnel_disperse_query = """            // Find accounts that receive from many sources and send to many destinations
+            // with stricter patterns and time-based analysis
             MATCH (account:Account)
             WHERE EXISTS((account)-[:SENT]->()) AND EXISTS((account)<-[:SENT]-())
             
             WITH account
             OPTIONAL MATCH (account)<-[in_tx:SENT]-(in_neighbor)
-            WITH account, count(DISTINCT in_neighbor) AS in_count, sum(in_tx.amount) AS in_amount
-            WHERE in_count >= 3
+            WHERE in_tx.amount >= 10000  // Only consider significant transactions
+            WITH account, 
+                 count(DISTINCT in_neighbor) AS in_count, 
+                 sum(in_tx.amount) AS in_amount,
+                 collect(in_tx.timestamp) AS in_timestamps
+            WHERE in_count >= 4  // Increased from 3
             
             OPTIONAL MATCH (account)-[out_tx:SENT]->(out_neighbor)
-            WITH account, in_count, in_amount, count(DISTINCT out_neighbor) AS out_count, sum(out_tx.amount) AS out_amount
-            WHERE out_count >= 3
+            WHERE out_tx.amount >= 10000  // Only consider significant transactions
+            WITH account, in_count, in_amount, in_timestamps,
+                 count(DISTINCT out_neighbor) AS out_count, 
+                 sum(out_tx.amount) AS out_amount,
+                 collect(out_tx.timestamp) AS out_timestamps
+            WHERE out_count >= 4  // Increased from 3
             
             // Check if total amounts are similar (money passing through)
             WITH account, in_count, out_count,
@@ -552,43 +596,56 @@ class PatternDetector:
         p90 = percentiles.get("percentile_90", 0.7) if percentiles else 0.7
         p95 = percentiles.get("percentile_95", 0.8) if percentiles else 0.8
         p99 = percentiles.get("percentile_99", 0.9) if percentiles else 0.9
-        
         print(f"  Score distribution - Min: {min_score:.3f}, Avg: {avg_score:.3f}, Max: {max_score:.3f}")
         print(f"  Percentiles - P90: {p90:.3f}, P95: {p95:.3f}, P99: {p99:.3f}")
         
-        # Calculate high-confidence thresholds based on distribution
-        high_confidence_threshold = max(0.6, p90)
-        very_high_confidence_threshold = max(0.7, p95)
+        # Calculate high-confidence thresholds based on distribution with stricter criteria
+        high_confidence_threshold = max(0.75, p90)  # Increased from 0.7
+        very_high_confidence_threshold = max(0.85, p95)  # Increased from 0.8
         
-        # Apply calibrated thresholds
+        # Apply calibrated thresholds with stricter criteria
         calibration_query = f"""
             MATCH (a:Account)
             WHERE a.fraud_score IS NOT NULL
             
-            // Apply calibration
+            // Apply calibration with more aggressive adjustments
             SET a.calibrated_score = CASE
-                // Upweight accounts with high confidence in multiple models
-                WHEN a.confidence_level > 0.8 AND a.fraud_score > {p90} THEN
-                    a.fraud_score * 1.15
+                // Significant upweight for very high confidence and multiple strong indicators
+                WHEN a.confidence_level > 0.9 AND a.fraud_score > {p95} AND
+                     size([x IN a.risk_factors WHERE x IN ['high_confidence_pattern', 'transaction_anomaly', 
+                     'money_mule', 'suspicious_cycle']]) >= 3 THEN  // Increased from 2
+                    CASE 
+                        WHEN a.fraud_score * 1.25 > 0.95 THEN 0.95  // Cap at 0.95
+                        ELSE a.fraud_score * 1.25
+                    END
                 
-                // Upweight accounts with specific high-risk patterns 
+                // Upweight accounts with specific high-risk patterns and high confidence
                 WHEN (a.similar_to_fraud = true OR a.high_confidence_pattern = true OR
-                      a.funnel_disperse_pattern = true) AND a.fraud_score > {p90} * 0.9 THEN
-                    a.fraud_score * 1.10
+                      a.funnel_disperse_pattern = true) AND a.fraud_score > {p90} AND
+                      a.confidence_level > 0.8 THEN  // Added confidence check
+                    CASE
+                        WHEN a.fraud_score * 1.15 > 0.90 THEN 0.90
+                        ELSE a.fraud_score * 1.15
+                    END
                     
-                // Downweight low-confidence high scores
-                WHEN a.confidence_level < 0.5 AND a.fraud_score > {avg_score} THEN
+                // Significant downweight for low-confidence high scores
+                WHEN a.confidence_level < 0.4 AND a.fraud_score > {avg_score} THEN
+                    a.fraud_score * 0.70  // More aggressive downweight
+                    
+                // Moderate downweight for medium-confidence high scores
+                WHEN a.confidence_level < 0.6 AND a.fraud_score > {p90} THEN
                     a.fraud_score * 0.85
-                    
-                // Apply confidence-based adjustment to other scores
-                ELSE a.fraud_score * (0.9 + (a.confidence_level * 0.2))
+                
+                ELSE a.fraud_score  // Keep original score
             END,
             
-            // Set calibrated risk level
+            // Set calibrated risk level with stricter thresholds
             a.risk_level = CASE
-                WHEN a.calibrated_score > {very_high_confidence_threshold} THEN 'very_high'
-                WHEN a.calibrated_score > {high_confidence_threshold} THEN 'high'
-                WHEN a.calibrated_score > {avg_score} THEN 'medium'
+                WHEN a.calibrated_score > {very_high_confidence_threshold} AND
+                     a.confidence_level > 0.8 THEN 'very_high'  // Added confidence requirement
+                WHEN a.calibrated_score > {high_confidence_threshold} AND
+                     a.confidence_level > 0.7 THEN 'high'  // Added confidence requirement
+                WHEN a.calibrated_score > {avg_score} * 1.5 THEN 'medium'
                 ELSE 'low'
             END
             

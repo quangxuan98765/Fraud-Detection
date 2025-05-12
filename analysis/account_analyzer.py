@@ -27,7 +27,6 @@ class AccountAnalyzer:
                     WITH a ORDER BY id(a)
                     SKIP $skip LIMIT $limit
                     
-                    WHERE a.out_count IS NOT NULL AND a.in_count IS NOT NULL
                     WITH a, 
                         COALESCE(a.out_count, 0) AS outCount, 
                         COALESCE(a.in_count, 0) AS inCount,
@@ -36,18 +35,34 @@ class AccountAnalyzer:
                         
                     // Calculate transaction count and amount differences
                     WITH a, outCount, inCount, outAmount, inAmount,
-                         abs(outCount - inCount) AS txDiff,
-                         abs(outAmount - inAmount) AS amountDiff
+                         CASE 
+                             WHEN outCount >= inCount THEN outCount - inCount
+                             ELSE inCount - outCount
+                         END AS txDiff,
+                         CASE 
+                             WHEN outAmount >= inAmount THEN outAmount - inAmount
+                             ELSE inAmount - outAmount
+                         END AS amountDiff,
+                         CASE 
+                             WHEN outAmount + inAmount > 0 THEN
+                                 CASE 
+                                     WHEN outAmount >= inAmount THEN outAmount / (outAmount + inAmount)
+                                     ELSE inAmount / (outAmount + inAmount)
+                                 END
+                             ELSE 0 
+                         END AS dominance_ratio
                     
-                    // Set imbalance metrics with improved thresholds for better detection
+                    // Set imbalance metrics with stricter thresholds and ratio analysis
                     SET a.tx_imbalance = CASE 
-                            WHEN outCount + inCount < 3 THEN 0  // Require minimum of 3 transactions (lowered from 4)
+                            WHEN outCount + inCount < 5 THEN 0  // Increased minimum transaction requirement
                             WHEN outCount + inCount = 0 THEN 0
+                            WHEN dominance_ratio > 0.85 THEN txDiff / (outCount + inCount) * 1.2  // Boost score for dominant direction
                             ELSE txDiff / (outCount + inCount)
                         END,
                         a.amount_imbalance = CASE
                             WHEN outAmount + inAmount = 0 THEN 0
-                            WHEN outAmount + inAmount < 70000 THEN 0  // Lowered threshold from 80000
+                            WHEN outAmount + inAmount < 100000 THEN 0  // Increased threshold
+                            WHEN dominance_ratio > 0.85 THEN amountDiff / (outAmount + inAmount) * 1.2  // Boost score for dominant direction
                             ELSE amountDiff / (outAmount + inAmount)
                         END,
                         a.only_sender = CASE 
@@ -91,6 +106,11 @@ class AccountAnalyzer:
                      a.in_amount AS inAmount,
                      a.out_count AS outCount,
                      a.in_count AS inCount
+                WITH a, outAmount, inAmount, outCount, inCount,
+                     CASE 
+                         WHEN outCount >= inCount THEN outCount - inCount
+                         ELSE inCount - outCount
+                     END AS txDiff
                 WHERE 
                     // High proportion of funds moving through account
                     outAmount > inAmount * 0.8 AND 
@@ -98,7 +118,8 @@ class AccountAnalyzer:
                     // Activity on both sides
                     outCount >= 2 AND inCount >= 2
                 SET a.rapid_turnover = true,
-                    a.turnover_ratio = outAmount / inAmount
+                    a.turnover_ratio = outAmount / inAmount,
+                    a.transaction_diff = txDiff
             """)
             
             # Identify structuring patterns (multiple small transactions)

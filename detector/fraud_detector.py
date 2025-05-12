@@ -200,11 +200,11 @@ class FraudDetector:
             return True
 
     def analyze_fraud(self):
-        """Chạy phân tích gian lận với các thuật toán đồ thị tối ưu"""
+        """Run optimized fraud analysis with graph algorithms"""
         try:
             with self.db_manager.driver.session() as session:
-                # Xóa dữ liệu phân tích cũ
-                print("🔍 Đang xóa phân tích cũ...")
+                # Clear old analysis data
+                print("🔍 Clearing old analysis...")
                 session.run("""
                     MATCH (a:Account) 
                     REMOVE a.fraud_score, a.community, a.pagerank_score, 
@@ -218,18 +218,15 @@ class FraudDetector:
                         a.calibrated_score, a.risk_level
                 """)
     
-                # Xóa mối quan hệ SIMILAR_TO
-                print("🔍 Đang xóa mối quan hệ từ phân tích trước...")
-                session.run("""
-                    MATCH ()-[r:SIMILAR_TO]->()
-                    DELETE r
-                """)
+                # Clear old SIMILAR_TO relationships
+                print("🔍 Clearing old relationships...")
+                session.run("MATCH ()-[r:SIMILAR_TO]->() DELETE r")
                 
-                # Tạo index
+                # Create index if needed
                 session.run("CREATE INDEX IF NOT EXISTS FOR (a:Account) ON (a.id)")
                 
-                # Xóa projected graph cũ
-                print("🔍 Đang xóa projected graph cũ...")
+                # Remove old projected graph
+                print("🔍 Removing old projected graph...")
                 try:
                     result = session.run("""
                         CALL gds.graph.list()
@@ -239,13 +236,13 @@ class FraudDetector:
                     """).single()
     
                     if result and result.get('exists', False):
-                        print("  Đã tìm thấy projected graph trong danh sách, đang xóa...")
+                        print("  Found existing projected graph, removing...")
                         session.run("CALL gds.graph.drop('fraud_graph', false)")
                 except Exception as e:
-                    print(f"  Lỗi khi kiểm tra projected graph: {e}")
+                    print(f"  Error checking projected graph: {e}")
                 
-                # 1. Tạo projected graph tối ưu với nhiều thuộc tính hơn
-                print("🔍 Đang tạo projected graph tối ưu...")
+                # 1. Create optimized projected graph 
+                print("🔍 Creating optimized projected graph...")
                 session.run("""
                     CALL gds.graph.project(
                         'fraud_graph',
@@ -253,6 +250,7 @@ class FraudDetector:
                         {
                             SENT: {
                                 type: 'SENT',
+                                orientation: 'UNDIRECTED',
                                 properties: {
                                     amount: {property: 'amount', defaultValue: 0.0}
                                 }
@@ -261,8 +259,8 @@ class FraudDetector:
                     )
                 """)
                 
-                # 2. Degree Centrality với weight
-                print("🔍 Đang tính Degree Centrality với trọng số...")
+                # 2. Degree Centrality with weights
+                print("🔍 Calculating weighted Degree Centrality...")
                 session.run("""
                     CALL gds.degree.write('fraud_graph', {
                         relationshipWeightProperty: 'amount',
@@ -270,8 +268,8 @@ class FraudDetector:
                     })
                 """)
                 
-                # 3. PageRank với tham số tối ưu
-                print("🔍 Đang chạy PageRank với tham số tối ưu...")
+                # 3. PageRank with optimized parameters
+                print("🔍 Running optimized PageRank...")
                 session.run("""
                     CALL gds.pageRank.write('fraud_graph', {
                         maxIterations: 30,
@@ -281,8 +279,8 @@ class FraudDetector:
                     })
                 """)
                 
-                # 4. Community Detection tối ưu
-                print("🔍 Đang phát hiện cộng đồng với thuật toán Louvain tối ưu...")
+                # 4. Optimized Community Detection
+                print("🔍 Detecting communities with optimized Louvain...")
                 session.run("""
                     CALL gds.louvain.write('fraud_graph', {
                         relationshipWeightProperty: 'amount',
@@ -293,11 +291,10 @@ class FraudDetector:
                     })
                 """)
                 
-                # 5. Node Similarity tối ưu
-                print("🔍 Đang tính Node Similarity tối ưu...")
+                # 5. Node Similarity optimization
+                print("🔍 Calculating optimized Node Similarity...")
                 session.run("""
                     CALL gds.nodeSimilarity.write('fraud_graph', {
-                        writeProperty: 'similarity_score',
                         writeRelationshipType: 'SIMILAR_TO',
                         writeRelationshipProperty: 'similarity',
                         topK: 15,
@@ -305,29 +302,31 @@ class FraudDetector:
                     })
                 """)
                 
-                # 6. Phân tích giao dịch
-                print("🔍 Đang tính giao dịch ra/vào...")
+                # 6. Transaction analysis
+                print("🔍 Calculating transaction flow metrics...")
                 self.transaction_analyzer.process_transaction_stats()
     
-                # 7. Phân tích hành vi tài khoản
-                print("🔍 Đang đánh dấu hành vi bất thường...")
+                # 7. Account behavior analysis
+                print("🔍 Marking abnormal behaviors...")
                 self.account_analyzer.process_account_behaviors()
                 self.account_analyzer.process_transaction_anomalies()
                 
-                # 8. Áp dụng thuật toán phát hiện gian lận tối ưu
-                print("🔍 Đang áp dụng thuật toán phát hiện gian lận tối ưu...")
+                # 8. Apply optimized fraud detection with pattern detector
+                print("🔍 Running optimized fraud detection algorithms...")
                 self.finalize_and_evaluate()
                 
-                # 9. Xóa projected graph để giải phóng bộ nhớ
-                print("🔍 Đang xóa projected graph...")
+                # 9. Clean up graph
+                print("🔍 Cleaning up projected graph...")
                 self.db_manager.cleanup_projected_graph()
-                print("✅ Phân tích gian lận tối ưu hoàn tất.")
+                print("✅ Optimized fraud analysis complete.")
                 return True
                 
         except Exception as e:
-            print(f"Lỗi khi phân tích gian lận: {e}")
+            print(f"Error during fraud analysis: {e}")
+            import traceback
+            traceback.print_exc()
             return False
-            
+
     def cleanup_projected_graph(self):
         """Xóa projected graph với cơ chế timeout và bỏ qua việc kiểm tra tồn tại"""
         return self.db_manager.cleanup_projected_graph()

@@ -14,9 +14,9 @@ DEFAULT_TARGET_EDGES = 193500
 DEFAULT_FRAUD_RATE = 0.00129
 
 # Fraud detection thresholds
-FRAUD_SCORE_THRESHOLD = 0.45     # Further lowered threshold for improved recall
-SUSPICIOUS_THRESHOLD = 0.35      # Lowered threshold for suspicious accounts
-HIGH_RISK_THRESHOLD = 0.65       # Adjusted threshold for high-risk accounts
+FRAUD_SCORE_THRESHOLD = 0.65     # Increased threshold for better precision
+SUSPICIOUS_THRESHOLD = 0.45      # Increased threshold for suspicious accounts
+HIGH_RISK_THRESHOLD = 0.80       # Increased threshold for high-risk accounts
 
 # Enhanced detection configuration
 MULE_DETECTION_ENABLED = True
