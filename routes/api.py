@@ -413,7 +413,7 @@ def reanalyze():
 def debug_metrics():
     try:
         with detector.driver.session() as session:            
-            # Truy vấn trực tiếp các ngưỡng và số lượng giao dịch              
+            # Truy vấn cập nhật với các thuộc tính mới từ bộ phát hiện tối ưu
             debug_info = session.run("""
                 MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
                 
@@ -436,7 +436,18 @@ def debug_metrics():
                        // True positives at different thresholds (using is_fraud for evaluation only)
                        count(DISTINCT CASE WHEN tx.is_fraud = 1 AND (sender.fraud_score > 0.7 OR receiver.fraud_score > 0.7) THEN tx END) AS true_positives_07,
                        count(DISTINCT CASE WHEN tx.is_fraud = 1 AND (sender.fraud_score > 0.6 OR receiver.fraud_score > 0.6) THEN tx END) AS true_positives_06,
-                       count(DISTINCT CASE WHEN tx.is_fraud = 1 AND (sender.fraud_score > 0.5 OR receiver.fraud_score > 0.5) THEN tx END) AS true_positives_05
+                       count(DISTINCT CASE WHEN tx.is_fraud = 1 AND (sender.fraud_score > 0.5 OR receiver.fraud_score > 0.5) THEN tx END) AS true_positives_05,
+                       
+                       // Metrics for new features in optimized detector
+                       count(DISTINCT CASE WHEN sender.model1_score > 0.6 OR receiver.model1_score > 0.6 THEN tx END) AS model1_transactions,
+                       count(DISTINCT CASE WHEN sender.model2_score > 0.6 OR receiver.model2_score > 0.6 THEN tx END) AS model2_transactions,
+                       count(DISTINCT CASE WHEN sender.model3_score > 0.6 OR receiver.model3_score > 0.6 THEN tx END) AS model3_transactions,
+                       count(DISTINCT CASE WHEN sender.high_confidence_pattern = true OR receiver.high_confidence_pattern = true THEN tx END) AS high_confidence_transactions,
+                       count(DISTINCT CASE WHEN sender.funnel_disperse_pattern = true OR receiver.funnel_disperse_pattern = true THEN tx END) AS funnel_disperse_transactions,
+                       count(DISTINCT CASE WHEN sender.round_tx_pattern = true OR receiver.round_tx_pattern = true THEN tx END) AS round_tx_transactions,
+                       count(DISTINCT CASE WHEN sender.increasing_chain = true OR receiver.increasing_chain = true THEN tx END) AS chain_transactions,
+                       count(DISTINCT CASE WHEN sender.similar_to_fraud = true OR receiver.similar_to_fraud = true THEN tx END) AS similarity_transactions,
+                       count(DISTINCT CASE WHEN sender.high_velocity = true OR receiver.high_velocity = true THEN tx END) AS velocity_transactions
             """).single()
             
             # Convert Neo4j Record to a Python dictionary
@@ -455,10 +466,10 @@ def debug_metrics():
                 "debug_metrics": metrics_dict,
                 "config": config_info
             })
-            
     except Exception as e:
         print(f"Debug metrics API error: {str(e)}")
         return jsonify({"error": str(e)})
+            
 
 @api_bp.route('/community/<community_id>')
 def get_community_details(community_id):

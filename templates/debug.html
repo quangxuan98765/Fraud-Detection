@@ -72,8 +72,7 @@
         <button id="debugBtn">Xem số liệu debug</button>
         <div id="debugResult"></div>
     </div>
-    
-    <div class="card">
+      <div class="card">
         <div class="card-header">Tính toán độ chính xác</div>
         <table id="metricsTable">
             <thead>
@@ -91,6 +90,13 @@
                 <!-- Sẽ được điền bằng JavaScript -->
             </tbody>
         </table>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">Metrics from Optimized Detector</div>
+        <div id="optimizedMetrics">
+            <!-- Sẽ được điền bằng JavaScript -->
+        </div>
     </div>
     
     <div class="card">
@@ -162,12 +168,24 @@
                         <li>Ngưỡng 0.6: ${metrics.fraud_accounts_06} tài khoản</li>
                         <li>Ngưỡng 0.7: ${metrics.fraud_accounts_07} tài khoản</li>
                     </ul>
-                    
-                    <h3>Giao dịch phát hiện tại các ngưỡng</h3>
+                      <h3>Giao dịch phát hiện tại các ngưỡng</h3>
                     <ul>
                         <li>Ngưỡng 0.5: ${metrics.fraud_transactions_05} giao dịch</li>
                         <li>Ngưỡng 0.6: ${metrics.fraud_transactions_06} giao dịch</li>
                         <li>Ngưỡng 0.7: ${metrics.fraud_transactions_07} giao dịch</li>
+                    </ul>
+                    
+                    <h3>Số liệu từ mô hình tối ưu</h3>
+                    <ul>
+                        <li>Model 1 (Network Structure): ${metrics.model1_transactions || 'N/A'} giao dịch</li>
+                        <li>Model 2 (Behavioral Patterns): ${metrics.model2_transactions || 'N/A'} giao dịch</li>
+                        <li>Model 3 (Complex Patterns): ${metrics.model3_transactions || 'N/A'} giao dịch</li>
+                        <li>Mẫu độ tin cậy cao: ${metrics.high_confidence_transactions || 'N/A'} giao dịch</li>
+                        <li>Mẫu phễu và phân tán: ${metrics.funnel_disperse_transactions || 'N/A'} giao dịch</li>
+                        <li>Giao dịch số tròn: ${metrics.round_tx_transactions || 'N/A'} giao dịch</li>
+                        <li>Mẫu chuỗi tăng dần: ${metrics.chain_transactions || 'N/A'} giao dịch</li>
+                        <li>Tương tự với gian lận: ${metrics.similarity_transactions || 'N/A'} giao dịch</li>
+                        <li>Tốc độ giao dịch cao: ${metrics.velocity_transactions || 'N/A'} giao dịch</li>
                     </ul>
                 `;
                 
@@ -215,9 +233,57 @@
                         <td>${metrics_calc.recall}</td>
                         <td>${metrics_calc.f1}</td>
                     `;
-                    
-                    tbody.appendChild(row);
+                      tbody.appendChild(row);
                 });
+                
+                // Add a section for optimized detector metrics
+                const optimizedMetricsDiv = document.getElementById('optimizedMetrics');
+                if (optimizedMetricsDiv) {
+                    let optimizedHtml = `
+                        <h3>Chi tiết mô hình tối ưu</h3>
+                        <table class="table table-striped table-bordered mt-3">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Mô hình/Mẫu</th>
+                                    <th>Số lượng giao dịch</th>
+                                    <th>% phủ gian lận thực tế</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+                    
+                    // Add rows for each optimization metric
+                    const optimizationMetrics = [
+                        {name: 'Model 1 (Network Structure)', value: metrics.model1_transactions || 0},
+                        {name: 'Model 2 (Behavioral Patterns)', value: metrics.model2_transactions || 0},
+                        {name: 'Model 3 (Complex Patterns)', value: metrics.model3_transactions || 0},
+                        {name: 'Mẫu độ tin cậy cao', value: metrics.high_confidence_transactions || 0},
+                        {name: 'Phễu và phân tán', value: metrics.funnel_disperse_transactions || 0},
+                        {name: 'Giao dịch số tròn', value: metrics.round_tx_transactions || 0},
+                        {name: 'Chuỗi tăng dần', value: metrics.chain_transactions || 0},
+                        {name: 'Tương tự với gian lận', value: metrics.similarity_transactions || 0},
+                        {name: 'Tốc độ giao dịch cao', value: metrics.velocity_transactions || 0}
+                    ];
+                    
+                    const realFraud = metrics.real_fraud_transactions || 1; // Avoid division by zero
+                    
+                    optimizationMetrics.forEach(metric => {
+                        const coveragePercent = ((metric.value / realFraud) * 100).toFixed(1) + '%';
+                        optimizedHtml += `
+                            <tr>
+                                <td>${metric.name}</td>
+                                <td>${metric.value}</td>
+                                <td>${coveragePercent}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    optimizedHtml += `
+                            </tbody>
+                        </table>
+                    `;
+                    
+                    optimizedMetricsDiv.innerHTML = optimizedHtml;
+                }
             })
             .catch(error => {
                 this.disabled = false;

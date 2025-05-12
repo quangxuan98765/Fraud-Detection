@@ -3,6 +3,7 @@ from detector.data_importer import DataImporter
 from analysis.account_analyzer import AccountAnalyzer
 from analysis.transaction_analyzer import TransactionAnalyzer
 from analysis.pattern_detector import PatternDetector
+from config import FRAUD_SCORE_THRESHOLD
 
 class FraudDetector:
     def __init__(self):
@@ -25,40 +26,54 @@ class FraudDetector:
     def import_data(self, csv_path):
         """Import dữ liệu sử dụng API Neo4j thay vì LOAD CSV"""
         return self.data_importer.import_data(csv_path)
-    
+        
     def finalize_and_evaluate(self):
-        """Chuẩn hóa điểm và đánh giá kết quả"""
+        """Chuẩn hóa điểm và đánh giá kết quả với thuật toán tối ưu"""
         with self.db_manager.driver.session() as session:
-            print("🔍 Đang hoàn tất phân tích...")
+            print("🔍 Đang hoàn tất phân tích với thuật toán tối ưu...")
             
-            # Sử dụng PatternDetector để tính điểm cuối cùng
+            # Sử dụng Optimized Pattern Detector để tính điểm
+            print("  Applying optimized multi-model fraud detection algorithms...")
             self.pattern_detector.calculate_fraud_scores()
             
-            # Đánh dấu tài khoản có rủi ro cao dựa trên nhiều tiêu chí
-            print("  Đang đánh dấu tài khoản có rủi ro cao...")
-            session.run("""
+            # Detecting specialized fraud patterns
+            print("  Detecting specialized fraud patterns...")
+            self.pattern_detector.detect_specialized_patterns(session)
+            
+            # Analyze transaction velocity if possible
+            print("  Analyzing transaction velocity patterns...")
+            self.pattern_detector.analyze_transaction_velocity(session)
+            
+            # Final score calibration
+            print("  Calibrating final risk scores...")
+            self.pattern_detector.calculate_final_risk_score(session)
+            
+            # Mark high-risk accounts with optimized criteria
+            print("  Đang đánh dấu tài khoản có rủi ro cao với tiêu chí tối ưu...")
+            session.run(f"""
                 MATCH (a:Account)
                 WHERE 
-                    (a.fraud_score > 0.7) OR
-                    (a.tx_anomaly = true AND a.tx_imbalance > 0.7) OR
-                    (a.cycle_boost > 0.3 AND a.pagerank_score > 0.6) OR
-                    (a.similarity_score > 0.7 AND a.base_score > 0.6) OR 
-                    (a.pagerank_score > 0.6 AND a.tx_imbalance > 0.7 AND a.cycle_boost > 0.2)                SET a.high_risk = true,
-                     a.risk_factors = CASE WHEN a.fraud_score > 0.7 THEN ['high_fraud_score']
-                         + CASE WHEN a.tx_anomaly = true AND a.tx_imbalance > 0.7 THEN ['transaction_anomaly'] ELSE [] END
-                         + CASE WHEN a.cycle_boost > 0.3 AND a.pagerank_score > 0.6 THEN ['suspicious_cycle'] ELSE [] END
-                         + CASE WHEN a.similarity_score > 0.7 AND a.base_score > 0.6 THEN ['similar_to_suspicious'] ELSE [] END
-                         + CASE WHEN a.pagerank_score > 0.6 AND a.tx_imbalance > 0.7 AND a.cycle_boost > 0.2 THEN ['combined_factors'] ELSE [] END
-                     ELSE
-                         CASE WHEN a.tx_anomaly = true AND a.tx_imbalance > 0.7 THEN ['transaction_anomaly'] ELSE [] END
-                         + CASE WHEN a.cycle_boost > 0.3 AND a.pagerank_score > 0.6 THEN ['suspicious_cycle'] ELSE [] END
-                         + CASE WHEN a.similarity_score > 0.7 AND a.base_score > 0.6 THEN ['similar_to_suspicious'] ELSE [] END
-                         + CASE WHEN a.pagerank_score > 0.6 AND a.tx_imbalance > 0.7 AND a.cycle_boost > 0.2 THEN ['combined_factors'] ELSE [] END
-                     END
+                    (a.fraud_score > {FRAUD_SCORE_THRESHOLD}) OR  // Use configured threshold
+                    (a.risk_level = 'very_high') OR
+                    (a.risk_level = 'high')
+                SET a.high_risk = true,
+                    a.risk_factors = CASE WHEN a.fraud_score > {FRAUD_SCORE_THRESHOLD} THEN ['high_fraud_score'] ELSE [] END
+                        + CASE WHEN a.model1_score > 0.6 THEN ['network_structure'] ELSE [] END
+                        + CASE WHEN a.model2_score > 0.6 THEN ['behavior_patterns'] ELSE [] END
+                        + CASE WHEN a.model3_score > 0.6 THEN ['complex_patterns'] ELSE [] END
+                        + CASE WHEN a.tx_anomaly = true THEN ['transaction_anomaly'] ELSE [] END
+                        + CASE WHEN a.cycle_boost > 0.2 THEN ['suspicious_cycle'] ELSE [] END
+                        + CASE WHEN a.potential_mule = true THEN ['money_mule'] ELSE [] END
+                        + CASE WHEN a.high_confidence_pattern = true THEN ['high_confidence_pattern'] ELSE [] END
+                        + CASE WHEN a.similar_to_fraud = true THEN ['similar_to_fraud'] ELSE [] END
+                        + CASE WHEN a.funnel_disperse_pattern = true THEN ['funnel_disperse'] ELSE [] END
+                        + CASE WHEN a.round_tx_pattern = true THEN ['round_transactions'] ELSE [] END
+                        + CASE WHEN a.increasing_chain = true THEN ['increasing_chain'] ELSE [] END
+                        + CASE WHEN a.high_velocity = true THEN ['high_velocity'] ELSE [] END
             """)
             
             # Validate detection effectiveness
-            print("  Đang kiểm tra hiệu quả phát hiện...")
+            print("  Đang kiểm tra hiệu quả phát hiện với thuật toán tối ưu...")
             validation = session.run("""
                 MATCH (a:Account)
                 WHERE a.high_risk = true
@@ -69,13 +84,22 @@ class FraudDetector:
                      count(DISTINCT CASE WHEN 'high_fraud_score' IN a.risk_factors THEN a END) AS fraud_score,
                      count(DISTINCT CASE WHEN 'transaction_anomaly' IN a.risk_factors THEN a END) AS tx_anomaly,
                      count(DISTINCT CASE WHEN 'suspicious_cycle' IN a.risk_factors THEN a END) AS cycles,
-                     count(DISTINCT CASE WHEN 'similar_to_suspicious' IN a.risk_factors THEN a END) AS similar,
-                     count(DISTINCT CASE WHEN 'combined_factors' IN a.risk_factors THEN a END) AS combined
+                     count(DISTINCT CASE WHEN 'network_structure' IN a.risk_factors THEN a END) AS network,
+                     count(DISTINCT CASE WHEN 'behavior_patterns' IN a.risk_factors THEN a END) AS behavior,
+                     count(DISTINCT CASE WHEN 'complex_patterns' IN a.risk_factors THEN a END) AS complex_patterns,
+                     count(DISTINCT CASE WHEN 'money_mule' IN a.risk_factors THEN a END) AS mules,
+                     count(DISTINCT CASE WHEN 'high_confidence_pattern' IN a.risk_factors THEN a END) AS high_conf,
+                     count(DISTINCT CASE WHEN 'similar_to_fraud' IN a.risk_factors THEN a END) AS similar,
+                     count(DISTINCT CASE WHEN 'funnel_disperse' IN a.risk_factors THEN a END) AS funnel,
+                     count(DISTINCT CASE WHEN 'round_transactions' IN a.risk_factors THEN a END) AS round_tx,
+                     count(DISTINCT CASE WHEN 'increasing_chain' IN a.risk_factors THEN a END) AS inc_chain,
+                     count(DISTINCT CASE WHEN 'high_velocity' IN a.risk_factors THEN a END) AS velocity
                 RETURN 
                     flagged_accounts,
                     multi_factor,
                     1.0 * multi_factor / flagged_accounts AS multi_factor_ratio,
-                    fraud_score, tx_anomaly, cycles, similar, combined
+                    fraud_score, tx_anomaly, cycles, network, behavior, complex_patterns,
+                    mules, high_conf, similar, funnel, round_tx, inc_chain, velocity
             """).single()
             
             if validation:
@@ -85,36 +109,113 @@ class FraudDetector:
                 fraud_score = validation.get("fraud_score", 0)
                 tx_anomaly = validation.get("tx_anomaly", 0)
                 cycles = validation.get("cycles", 0)
+                network = validation.get("network", 0)
+                behavior = validation.get("behavior", 0)
+                complex_patterns = validation.get("complex_patterns", 0)
+                mules = validation.get("mules", 0)
+                high_conf = validation.get("high_conf", 0)
                 similar = validation.get("similar", 0)
-                combined = validation.get("combined", 0)
+                funnel = validation.get("funnel", 0)
+                round_tx = validation.get("round_tx", 0)
+                inc_chain = validation.get("inc_chain", 0)
+                velocity = validation.get("velocity", 0)
                 
-                print(f"\nKết quả phát hiện gian lận:")
+                print(f"\nKết quả phát hiện gian lận với thuật toán tối ưu:")
                 print(f"  Tổng số tài khoản đáng ngờ: {flagged}")
                 print(f"  - Có nhiều yếu tố: {multi} ({multi_ratio:.1%})")
                 print(f"  - Điểm gian lận cao: {fraud_score}")
+                print(f"  - Mô hình cấu trúc mạng: {network}")
+                print(f"  - Mô hình hành vi: {behavior}")
+                print(f"  - Mô hình mẫu phức tạp: {complex_patterns}")
                 print(f"  - Giao dịch bất thường: {tx_anomaly}")
                 print(f"  - Nằm trong chu trình: {cycles}")
-                print(f"  - Tương tự tài khoản khác: {similar}")
-                print(f"  - Kết hợp nhiều yếu tố: {combined}")
+                print(f"  - Tài khoản trung gian: {mules}")
+                print(f"  - Mẫu độ tin cậy cao: {high_conf}")
+                print(f"  - Tương tự tài khoản gian lận: {similar}")
+                print(f"  - Mẫu phễu và phân tán: {funnel}")
+                print(f"  - Giao dịch số tròn: {round_tx}")
+                print(f"  - Chuỗi tăng dần: {inc_chain}")
+                print(f"  - Tốc độ giao dịch cao: {velocity}")
+            
+            # Performance Metrics (if ground truth is available)
+            metrics = session.run("""
+                MATCH (a:Account)
+                WITH
+                    count(a) AS total_accounts,
+                    count(CASE WHEN a.is_fraud = true THEN a END) AS actual_fraud,
+                    count(CASE WHEN a.fraud_score > 0.5 THEN a END) AS detected_05,
+                    count(CASE WHEN a.fraud_score > 0.6 THEN a END) AS detected_06,
+                    count(CASE WHEN a.fraud_score > 0.7 THEN a END) AS detected_07,
+                    count(CASE WHEN a.is_fraud = true AND a.fraud_score > 0.5 THEN a END) AS true_pos_05,
+                    count(CASE WHEN a.is_fraud = true AND a.fraud_score > 0.6 THEN a END) AS true_pos_06,
+                    count(CASE WHEN a.is_fraud = true AND a.fraud_score > 0.7 THEN a END) AS true_pos_07
+                
+                RETURN 
+                    total_accounts,
+                    actual_fraud,
+                    detected_05, detected_06, detected_07,
+                    true_pos_05, true_pos_06, true_pos_07,
+                    
+                    // Calculate precision, recall, F1 at different thresholds
+                    CASE WHEN detected_05 > 0 THEN 1.0 * true_pos_05 / detected_05 ELSE 0 END AS precision_05,
+                    CASE WHEN detected_06 > 0 THEN 1.0 * true_pos_06 / detected_06 ELSE 0 END AS precision_06,
+                    CASE WHEN detected_07 > 0 THEN 1.0 * true_pos_07 / detected_07 ELSE 0 END AS precision_07,
+                    
+                    CASE WHEN actual_fraud > 0 THEN 1.0 * true_pos_05 / actual_fraud ELSE 0 END AS recall_05,
+                    CASE WHEN actual_fraud > 0 THEN 1.0 * true_pos_06 / actual_fraud ELSE 0 END AS recall_06,
+                    CASE WHEN actual_fraud > 0 THEN 1.0 * true_pos_07 / actual_fraud ELSE 0 END AS recall_07
+            """).single()
+            
+            if metrics and metrics.get("actual_fraud", 0) > 0:
+                total = metrics.get("total_accounts", 0)
+                actual = metrics.get("actual_fraud", 0)
+                detected_05 = metrics.get("detected_05", 0)
+                detected_06 = metrics.get("detected_06", 0)
+                detected_07 = metrics.get("detected_07", 0)
+                true_pos_05 = metrics.get("true_pos_05", 0)
+                true_pos_06 = metrics.get("true_pos_06", 0)
+                true_pos_07 = metrics.get("true_pos_07", 0)
+                precision_05 = metrics.get("precision_05", 0)
+                precision_06 = metrics.get("precision_06", 0)
+                precision_07 = metrics.get("precision_07", 0)
+                recall_05 = metrics.get("recall_05", 0)
+                recall_06 = metrics.get("recall_06", 0)
+                recall_07 = metrics.get("recall_07", 0)
+                
+                # Calculate F1 scores
+                f1_05 = 2 * (precision_05 * recall_05) / (precision_05 + recall_05) if (precision_05 + recall_05) > 0 else 0
+                f1_06 = 2 * (precision_06 * recall_06) / (precision_06 + recall_06) if (precision_06 + recall_06) > 0 else 0
+                f1_07 = 2 * (precision_07 * recall_07) / (precision_07 + recall_07) if (precision_07 + recall_07) > 0 else 0
+                
+                print(f"\nMetrics hiệu suất phát hiện gian lận:")
+                print(f"  Tổng số tài khoản: {total:,}")
+                print(f"  Tài khoản gian lận thực tế: {actual:,}")
+                print(f"  Ngưỡng 0.5: {detected_05:,} phát hiện, {true_pos_05:,} đúng, " +
+                      f"Precision: {precision_05:.1%}, Recall: {recall_05:.1%}, F1: {f1_05:.1%}")
+                print(f"  Ngưỡng 0.6: {detected_06:,} phát hiện, {true_pos_06:,} đúng, " +
+                      f"Precision: {precision_06:.1%}, Recall: {recall_06:.1%}, F1: {f1_06:.1%}")
+                print(f"  Ngưỡng 0.7: {detected_07:,} phát hiện, {true_pos_07:,} đúng, " +
+                      f"Precision: {precision_07:.1%}, Recall: {recall_07:.1%}, F1: {f1_07:.1%}")
             
             return True
 
-    def process_high_risk_communities(self):
-        """Xử lý các cộng đồng có nguy cơ cao"""
-        # Sử dụng PatternDetector có các phương thức tương tự
-        # Phương thức này được bao gồm trong analyze_fraud
-        return True
-
     def analyze_fraud(self):
-        """Chạy phân tích gian lận với các thuật toán đồ thị"""
+        """Chạy phân tích gian lận với các thuật toán đồ thị tối ưu"""
         try:
-            with self.db_manager.driver.session() as session:                # Xóa dữ liệu phân tích cũ
+            with self.db_manager.driver.session() as session:
+                # Xóa dữ liệu phân tích cũ
                 print("🔍 Đang xóa phân tích cũ...")
                 session.run("""
                     MATCH (a:Account) 
                     REMOVE a.fraud_score, a.community, a.pagerank_score, 
                         a.degree_score, a.similarity_score, a.path_score, a.suspected_fraud,
-                        a.base_score, a.tx_anomaly, a.high_tx_volume, a.only_sender
+                        a.base_score, a.tx_anomaly, a.high_tx_volume, a.only_sender,
+                        a.potential_mule, a.mule_boost, a.temporal_boost, a.rapid_transfer,
+                        a.model1_score, a.model2_score, a.model3_score, a.ensemble_score,
+                        a.optimized_score, a.confidence_level, a.feature_importance,
+                        a.high_confidence_pattern, a.round_tx_pattern, a.funnel_disperse_pattern,
+                        a.increasing_chain, a.similar_to_fraud, a.high_velocity, a.velocity_ratio,
+                        a.calibrated_score, a.risk_level
                 """)
     
                 # Xóa mối quan hệ SIMILAR_TO
@@ -141,115 +242,66 @@ class FraudDetector:
                         print("  Đã tìm thấy projected graph trong danh sách, đang xóa...")
                         session.run("CALL gds.graph.drop('fraud_graph', false)")
                 except Exception as e:
-                    print(f"  Lỗi khi kiểm tra projected graph: {e}")                # 1. Tạo projected graph ban đầu (chỉ dùng amount, không dùng is_fraud)
-                print("🔍 Đang tạo projected graph...")
+                    print(f"  Lỗi khi kiểm tra projected graph: {e}")
+                
+                # 1. Tạo projected graph tối ưu với nhiều thuộc tính hơn
+                print("🔍 Đang tạo projected graph tối ưu...")
                 session.run("""
                     CALL gds.graph.project(
                         'fraud_graph',
                         'Account',
-                        'SENT',
                         {
-                            relationshipProperties: {
-                                amount: {property: 'amount', defaultValue: 0.0}
+                            SENT: {
+                                type: 'SENT',
+                                properties: {
+                                    amount: {property: 'amount', defaultValue: 0.0}
+                                }
                             }
                         }
                     )
                 """)
                 
-                # 2. Degree Centrality
-                print("🔍 Đang tính Degree Centrality...")
+                # 2. Degree Centrality với weight
+                print("🔍 Đang tính Degree Centrality với trọng số...")
                 session.run("""
                     CALL gds.degree.write('fraud_graph', {
+                        relationshipWeightProperty: 'amount',
                         writeProperty: 'degree_score'
                     })
                 """)
                 
-                # 3. PageRank
-                print("🔍 Đang chạy PageRank...")
+                # 3. PageRank với tham số tối ưu
+                print("🔍 Đang chạy PageRank với tham số tối ưu...")
                 session.run("""
                     CALL gds.pageRank.write('fraud_graph', {
-                        writeProperty: 'pagerank_score',
-                        maxIterations: 20
+                        maxIterations: 30,
+                        dampingFactor: 0.85,
+                        relationshipWeightProperty: 'amount',
+                        writeProperty: 'pagerank_score'
                     })
                 """)
                 
-                # 4. Louvain - Phát hiện cộng đồng (không dùng seedProperty vì gây lỗi)
-                print("🔍 Đang phát hiện cộng đồng với Louvain...")
+                # 4. Community Detection tối ưu
+                print("🔍 Đang phát hiện cộng đồng với thuật toán Louvain tối ưu...")
                 session.run("""
                     CALL gds.louvain.write('fraud_graph', {
-                        writeProperty: 'community',
-                        maxLevels: 10,           // Giới hạn số level của thuật toán
-                        maxIterations: 20,       // Số lần lặp tối đa
-                        tolerance: 0.0001,       // Giá trị ngưỡng để hội tụ cao hơn
-                        includeIntermediateCommunities: false  // Không lưu các cộng đồng trung gian
+                        relationshipWeightProperty: 'amount',
+                        maxLevels: 10,
+                        maxIterations: 20,
+                        tolerance: 0.0001,
+                        writeProperty: 'community'
                     })
                 """)
                 
-                # Thống kê các cộng đồng phát hiện được
-                community_stats = session.run("""
-                    MATCH (a:Account)
-                    WHERE a.community IS NOT NULL
-                    WITH a.community AS community, count(*) AS size
-                    RETURN 
-                        count(*) AS total_communities,
-                        sum(CASE WHEN size = 1 THEN 1 ELSE 0 END) AS single_node_communities,
-                        sum(CASE WHEN size >= 2 AND size <= 5 THEN 1 ELSE 0 END) AS small_communities,
-                        sum(CASE WHEN size > 5 AND size <= 20 THEN 1 ELSE 0 END) AS medium_communities,
-                        sum(CASE WHEN size > 20 THEN 1 ELSE 0 END) AS large_communities,
-                        avg(size) AS avg_community_size,
-                        max(size) AS max_community_size
-                """).single()
-                
-                if community_stats:
-                    print(f"  Tổng số cộng đồng: {community_stats['total_communities']}")
-                    print(f"  Cộng đồng một nút: {community_stats['single_node_communities']} " + 
-                          f"({community_stats['single_node_communities']/community_stats['total_communities']*100:.1f}%)")
-                    print(f"  Cộng đồng nhỏ (2-5 nút): {community_stats['small_communities']}")
-                    print(f"  Cộng đồng trung bình (6-20 nút): {community_stats['medium_communities']}")
-                    print(f"  Cộng đồng lớn (>20 nút): {community_stats['large_communities']}")
-                    print(f"  Kích thước trung bình: {community_stats['avg_community_size']:.2f}")
-                    print(f"  Kích thước lớn nhất: {community_stats['max_community_size']}")
-                    
-                    # Nếu có quá nhiều cộng đồng đơn lẻ, thực hiện gom nhóm lại
-                    single_percent = community_stats['single_node_communities']/community_stats['total_communities']
-                    if single_percent > 0.8:  # Nếu hơn 80% là cộng đồng một nút
-                        print("  Đang gom nhóm các cộng đồng nhỏ...")
-                        # Gán cộng đồng mới dựa trên pagerank_score (chia thành 5 nhóm)
-                        session.run("""
-                            MATCH (a:Account)
-                            WHERE a.community IS NOT NULL AND (a)-[:SENT]->() OR ()-[:SENT]->(a)
-                            WITH a, a.pagerank_score AS score
-                            ORDER BY score DESC
-                            WITH collect(a) AS all_accounts, count(*) AS total
-                            WITH all_accounts, total, 
-                                 total / 5 AS group_size
-                            UNWIND range(0, 4) as group_id
-                            WITH all_accounts, group_id, group_size
-                            WITH all_accounts[group_id * group_size..(group_id + 1) * group_size] AS accounts, group_id
-                            UNWIND accounts AS account
-                            SET account.consolidated_community = group_id
-                            RETURN count(*) as grouped
-                        """)
-                        # Xử lý các nút không có giao dịch nào
-                        session.run("""
-                            MATCH (a:Account)
-                            WHERE NOT EXISTS(a.consolidated_community)
-                            SET a.consolidated_community = 5
-                        """)
-                        # Sử dụng consolidated_community thay vì community
-                        session.run("""
-                            MATCH (a:Account)
-                            SET a.community = a.consolidated_community
-                            REMOVE a.consolidated_community
-                        """)
-                        
-                # 5. Node Similarity
-                print("🔍 Đang tính Node Similarity...")
+                # 5. Node Similarity tối ưu
+                print("🔍 Đang tính Node Similarity tối ưu...")
                 session.run("""
                     CALL gds.nodeSimilarity.write('fraud_graph', {
                         writeProperty: 'similarity_score',
                         writeRelationshipType: 'SIMILAR_TO',
-                        topK: 10
+                        writeRelationshipProperty: 'similarity',
+                        topK: 15,
+                        similarityCutoff: 0.5
                     })
                 """)
                 
@@ -262,18 +314,14 @@ class FraudDetector:
                 self.account_analyzer.process_account_behaviors()
                 self.account_analyzer.process_transaction_anomalies()
                 
-                # 8. Tính điểm gian lận
-                print("🔍 Đang tính điểm gian lận tổng hợp...")
-                self.pattern_detector.calculate_fraud_scores()
-                
-                # 9. Hoàn tất phân tích
-                print("🔍 Đang hoàn tất phân tích...")
+                # 8. Áp dụng thuật toán phát hiện gian lận tối ưu
+                print("🔍 Đang áp dụng thuật toán phát hiện gian lận tối ưu...")
                 self.finalize_and_evaluate()
                 
-                # 10. Xóa projected graph để giải phóng bộ nhớ
+                # 9. Xóa projected graph để giải phóng bộ nhớ
                 print("🔍 Đang xóa projected graph...")
                 self.db_manager.cleanup_projected_graph()
-                print("✅ Phân tích gian lận hoàn tất.")
+                print("✅ Phân tích gian lận tối ưu hoàn tất.")
                 return True
                 
         except Exception as e:
