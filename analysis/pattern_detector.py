@@ -1,4 +1,9 @@
-from config import FRAUD_SCORE_THRESHOLD, SUSPICIOUS_THRESHOLD, HIGH_RISK_THRESHOLD
+from config import (FRAUD_SCORE_THRESHOLD, SUSPICIOUS_THRESHOLD, HIGH_RISK_THRESHOLD,
+                 VERY_HIGH_RISK_THRESHOLD, VELOCITY_THRESHOLD, ROUND_AMOUNT_MIN, 
+                 CHAIN_TIME_WINDOW, MIN_CHAIN_LENGTH, FUNNEL_MIN_SOURCES, 
+                 BURST_WINDOW_HOURS, MIN_CONFIDENCE_LEVEL, BURST_CONFIDENCE,
+                 CHAIN_CONFIDENCE, FUNNEL_CONFIDENCE)
+import time
 
 class PatternDetector:
     def __init__(self, driver):
@@ -6,552 +11,520 @@ class PatternDetector:
 
     def analyze_fraud(self):
         with self.driver.session() as session:
-            # First detect complex patterns
-            print("Detecting fraud patterns...")
+            print("🔍 Detecting complex fraud patterns...")
+            start_time = time.time()
+            
+            # First detect temporal patterns and bursts
+            self.detect_temporal_patterns(session)
+            
+            # Then detect specialized transaction patterns
             self.detect_specialized_patterns(session)
 
-            # Then analyze transaction velocity
+            # Analyze transaction velocity and bursts
             self.analyze_transaction_velocity(session)
 
-            # Calculate initial scores using ensemble
+            # Calculate initial scores using improved ensemble
             self.calculate_fraud_scores()
 
-            # Apply final calibration
+            # Apply final calibration with improved thresholds
             self.calculate_final_risk_score(session)
-
+            
+            print(f"✅ Pattern detection completed in {time.time() - start_time:.2f} seconds")
             return True
 
-    def calculate_fraud_scores(self):
-        """Calculate optimized fraud scores using ensemble methods and improved weighting"""
-        with self.driver.session() as session:
-            print("Calculating optimized fraud scores with multi-model approach...")
+    def detect_temporal_patterns(self, session):
+        """Phân tích các mẫu thời gian dựa trên step"""
+        print("Analyzing temporal patterns in transactions...")
+        
+        temporal_queries = [
+            # 1. Phát hiện burst patterns (nhiều giao dịch trong cùng 1 step)
+            """
+            MATCH (a:Account)-[tx:SENT]->(b:Account)
+            WITH a, tx.step AS step, COUNT(tx) AS tx_count,
+                 SUM(tx.amount) AS total_amount,
+                 COLLECT(tx.amount) AS amounts
+            WHERE tx_count >= 3  // Ít nhất 3 giao dịch trong cùng step
             
-            # 1. Clear old optimized scores
-            session.run("""
-                MATCH (a:Account)
-                REMOVE a.optimized_score, a.confidence_level, a.feature_importance,
-                      a.model1_score, a.model2_score, a.model3_score, a.ensemble_score
-            """)
+            WITH a,
+                 COUNT(step) AS burst_steps,
+                 AVG(tx_count) AS avg_tx_per_step,
+                 AVG(total_amount) AS avg_amount_per_step
+            WHERE burst_steps >= 2  // Có ít nhất 2 step có burst pattern
             
-            # 2. Identify highest-confidence fraud patterns with stricter criteria
-            session.run("""
-                MATCH (s:Account)-[r:SENT]->(t:Account)
-                WHERE r.amount > 200000 AND  // Increased amount threshold
-                    (
-                        // Strong structural indicators
-                        (s.pagerank_score > 0.75 AND t.pagerank_score > 0.75) OR  // Increased threshold
-                        // Strong behavioral indicators  
-                        (s.tx_anomaly = true AND t.tx_anomaly = true AND r.amount > 250000) OR  // Increased amount
-                        // Strong imbalance indicators with multiple signals
-                        (s.tx_imbalance > 0.8 AND t.tx_imbalance > 0.8)
-                    )
-                SET s.high_confidence_pattern = true,
-                    t.high_confidence_pattern = true
-            """)
+            SET a.burst_pattern = true,
+                a.burst_steps = burst_steps,
+                a.avg_tx_per_burst = avg_tx_per_step,
+                a.avg_amount_per_burst = avg_amount_per_step
+            RETURN COUNT(DISTINCT a) AS accounts_with_bursts
+            """,
 
-            # 3. MODEL 1: Feature-weighted scoring - favors network metrics
+            # 2. Phân tích chu kỳ giao dịch
+            """
+            MATCH (a:Account)-[tx:SENT]->()
+            WITH a, tx.step AS step
+            ORDER BY step
+            WITH a, COLLECT(step) AS steps
+            WHERE SIZE(steps) >= 3
+            
+            WITH a, steps,
+                 REDUCE(diffs = [], i IN RANGE(0, SIZE(steps)-2) |
+                    diffs + [steps[i+1] - steps[i]]
+                 ) AS step_differences
+            
+            WITH a, 
+                 AVG(step_differences) AS avg_interval,                 SQRT(REDUCE(variance = 0.0, diff IN step_differences |
+                    variance + (toFloat(diff) - AVG(step_differences)) ^ 2
+                 ) / SIZE(step_differences)) AS interval_stddev
+            
+            SET a.tx_interval = avg_interval,
+                a.interval_regularity = 
+                    CASE 
+                        WHEN interval_stddev = 0 THEN 1.0  // Hoàn toàn đều đặn
+                        WHEN interval_stddev < 2 THEN 0.8  // Khá đều đặn
+                        WHEN interval_stddev < 5 THEN 0.5  // Hơi đều đặn
+                        ELSE 0.2                           // Không đều đặn
+                    END
+            RETURN COUNT(a) AS accounts_analyzed
+            """,
+
+            # 3. Phát hiện mẫu tăng/giảm theo thời gian
+            """
+            MATCH p=(a:Account)-[tx1:SENT]->(b:Account)-[tx2:SENT]->(c:Account)
+            WHERE tx2.step > tx1.step  // Giao dịch theo thứ tự thời gian
+                  AND tx2.step - tx1.step <= 24  // Trong vòng 24 giờ
+            WITH a, b, c, tx1, tx2,
+                 CASE 
+                    WHEN tx2.amount > tx1.amount * 1.2 THEN 'INCREASE'
+                    WHEN tx2.amount < tx1.amount * 0.8 THEN 'DECREASE'
+                    ELSE 'STABLE'
+                 END AS amount_pattern
+            
+            WHERE amount_pattern = 'INCREASE'  // Tập trung vào chuỗi tăng dần
+            
+            WITH DISTINCT a, COUNT(b) AS chain_count
+            WHERE chain_count >= 2  // Có ít nhất 2 chuỗi tăng dần
+            
+            SET a.increasing_chains = true,
+                a.chain_count = chain_count
+            RETURN COUNT(a) AS accounts_with_chains
+            """,
+
+            # 4. Phân tích tần suất theo khung giờ
+            """
+            MATCH (a:Account)-[tx:SENT]->()
+            WITH a, tx.step % 24 AS hour, COUNT(tx) AS tx_count
+            
+            WITH a,
+                 COLLECT({hour: hour, count: tx_count}) AS hourly_dist,
+                 MAX(tx_count) AS max_hour_count
+            
+            SET a.peak_hour_count = max_hour_count,
+                a.hour_concentration = 
+                    CASE 
+                        WHEN SIZE(hourly_dist) <= 4 THEN 0.9  // Rất tập trung
+                        WHEN SIZE(hourly_dist) <= 8 THEN 0.7  // Khá tập trung
+                        WHEN SIZE(hourly_dist) <= 12 THEN 0.5 // Trung bình
+                        ELSE 0.3                              // Phân tán
+                    END
+            RETURN COUNT(a) AS accounts_analyzed
+            """
+        ]
+        
+        print("\nAnalyzing temporal patterns:")
+        for i, query in enumerate(temporal_queries, 1):
+            result = session.run(query).single()
+            if result:
+                count = list(result.values())[0]
+                pattern_types = ["Burst patterns", "Transaction cycles", 
+                               "Amount chains", "Hour distribution"]
+                print(f"  Pattern {i} ({pattern_types[i-1]}): {count} accounts")
+
+        # Update risk scores based on temporal patterns
+        session.run("""
+        MATCH (a:Account)
+        WHERE a.burst_pattern = true OR 
+              a.interval_regularity IS NOT NULL OR
+              a.increasing_chains = true OR
+              a.hour_concentration IS NOT NULL
+        
+        SET a.temporal_risk_score = 
+            CASE
+                // Combine multiple temporal patterns
+                WHEN a.burst_pattern = true AND a.increasing_chains = true
+                    THEN 0.9  // Very suspicious
+                
+                // Individual pattern scoring
+                WHEN a.burst_pattern = true AND a.burst_steps >= 3
+                    THEN 0.8  // Multiple burst periods
+                WHEN a.interval_regularity >= 0.8 AND a.hour_concentration >= 0.7
+                    THEN 0.75 // Very regular and concentrated
+                WHEN a.increasing_chains = true AND a.chain_count >= 3
+                    THEN 0.7  // Multiple increasing chains
+                
+                // Moderate risk patterns
+                WHEN a.burst_pattern = true OR a.increasing_chains = true
+                    THEN 0.6
+                WHEN a.interval_regularity >= 0.8 OR a.hour_concentration >= 0.7
+                    THEN 0.5
+                
+                // Low risk or normal patterns
+                ELSE 0.3
+            END
+        """)
+        
+        return True
+
+    def calculate_fraud_scores(self):
+        """Calculate optimized fraud scores with temporal patterns and improved weighting"""
+        with self.driver.session() as session:
+            print("Calculating optimized fraud scores with temporal analysis...")
+            
+            # 1. MODEL 1: Network Structure (30%)
             model1_query = """
                 MATCH (a:Account)
-                
                 WITH a, 
                     COALESCE(a.pagerank_score, 0) AS pagerank,
                     COALESCE(a.degree_score, 0) AS degree,
                     COALESCE(a.similarity_score, 0) AS similarity,
                     COALESCE(a.tx_imbalance, 0) AS imbalance,
                     COALESCE(a.amount_imbalance, 0) AS amount_imbalance,
-                    COALESCE(a.high_tx_volume, false) AS high_volume,
-                    COALESCE(a.tx_anomaly, false) AS anomaly,
-                    COALESCE(a.high_value_tx, false) AS high_value,
-                    COALESCE(a.potential_fraud, false) AS potential_fraud,
-                    COALESCE(a.potential_mule, false) AS potential_mule,
-                    COALESCE(a.suspected_fraud, false) AS suspected_fraud,
-                    COALESCE(a.cycle_boost, 0) AS cycle_boost,
-                    COALESCE(a.relation_boost, 0) AS relation_boost,
-                    COALESCE(a.high_confidence_pattern, false) AS high_confidence
-                  // Model 1: Weight network structure heavily
-                WITH a, 
-                    // Network metrics (25% weight) - reduced from 35%
-                    (pagerank * 0.10 +
-                     degree * 0.08 + 
-                     similarity * 0.07) * 0.25 +
-                    
-                    // Transaction patterns (35% weight)
-                    (CASE 
-                        WHEN imbalance > 0.95 THEN 0.35  // Increased thresholds
-                        WHEN imbalance > 0.85 THEN 0.25
-                        WHEN imbalance > 0.75 THEN 0.15
-                        WHEN imbalance > 0.65 THEN 0.08
-                        ELSE imbalance * 0.05
-                     END +
-                     CASE 
-                        WHEN amount_imbalance > 0.95 THEN 0.15
-                        WHEN amount_imbalance > 0.85 THEN 0.10
-                        WHEN amount_imbalance > 0.75 THEN 0.06
-                        WHEN amount_imbalance > 0.65 THEN 0.03
-                        ELSE amount_imbalance * 0.02
-                     END) * 0.35 +
-                    
-                    // Behavioral flags (40% weight) - increased from 25%
-                    (CASE WHEN anomaly AND high_value THEN 0.25 ELSE 
-                         CASE WHEN anomaly THEN 0.15
-                         WHEN high_value THEN 0.10 
-                         ELSE 0 END
-                     END +
-                     CASE WHEN high_volume THEN 0.08 ELSE 0 END +
-                     CASE WHEN potential_fraud THEN 0.50 ELSE 0 END +
-                     CASE WHEN potential_mule THEN 0.40 ELSE 0 END +
-                     CASE WHEN suspected_fraud THEN 0.45 ELSE 0 END +
-                     CASE WHEN high_confidence THEN 0.50 ELSE 0 END +
-                     cycle_boost * 0.40 +
-                     relation_boost * 0.35) * 0.40 AS model1_score
+                    COALESCE(a.temporal_density, 0) AS temporal_density,
+                    COALESCE(a.step_variance, 0) AS step_variance,
+                    COALESCE(a.has_burst_pattern, false) AS has_burst,
+                    COALESCE(a.burst_count, 0) AS burst_count
+                
+                WITH a, pagerank, degree, similarity, imbalance, amount_imbalance,
+                     temporal_density, step_variance, has_burst, burst_count,
+                     
+                     // Network metrics (50% of model weight)
+                     (pagerank * 0.20 +
+                      degree * 0.15 + 
+                      similarity * 0.15) * 0.50 +
+                     
+                     // Transaction metrics (30% of model weight)
+                     (CASE 
+                         WHEN imbalance > 0.95 THEN 0.30
+                         WHEN imbalance > 0.90 THEN 0.25
+                         WHEN imbalance > 0.85 THEN 0.20
+                         WHEN imbalance > 0.80 THEN 0.15
+                         ELSE imbalance * 0.10
+                      END +
+                      CASE 
+                         WHEN amount_imbalance > 0.95 THEN 0.20
+                         WHEN amount_imbalance > 0.90 THEN 0.15
+                         WHEN amount_imbalance > 0.85 THEN 0.10
+                         ELSE amount_imbalance * 0.05
+                      END) * 0.30 +
+                      
+                     // Temporal metrics (20% of model weight)
+                     (CASE
+                         WHEN has_burst AND burst_count >= 5 THEN 0.30
+                         WHEN has_burst THEN 0.20
+                         ELSE 0
+                      END +
+                      CASE
+                         WHEN temporal_density > 3 THEN 0.20
+                         WHEN temporal_density > 2 THEN 0.15
+                         WHEN temporal_density > 1 THEN 0.10
+                         ELSE temporal_density * 0.05
+                      END +
+                      CASE
+                         WHEN step_variance < 0.5 THEN 0.20  // Low variance = suspicious
+                         WHEN step_variance < 1.0 THEN 0.15
+                         ELSE 0.05
+                      END) * 0.20
+                AS model1_score
                 
                 SET a.model1_score = model1_score
-                RETURN count(a) AS processed_count
-            """
-            
-            # 4. MODEL 2: Feature-weighted scoring - favors behavioral patterns
+                RETURN COUNT(a) AS processed_count
+            """            # 2. MODEL 2: Behavioral Patterns (35%)
             model2_query = """
                 MATCH (a:Account)
+                // Look for transactions, but don't fail if none exist
+                OPTIONAL MATCH (a)-[tx:SENT]->(b:Account)
+                WITH a, COLLECT(tx) as txs
+                  // Default values in case of no transactions
+                WITH a, txs,
+                     SIZE(txs) as tx_count,
+                     CASE WHEN SIZE(txs) > 0 THEN REDUCE(s = 0, t IN txs | s + t.amount) ELSE 0 END as total_amount,
+                     CASE WHEN SIZE(txs) > 0 THEN 
+                          CASE WHEN SIZE(txs) = 0 THEN 0 
+                          ELSE REDUCE(s = 0, t IN txs | s + t.amount) / SIZE(txs) 
+                          END
+                     ELSE 0 END as avg_amount
                 
-                WITH a, 
-                    COALESCE(a.pagerank_score, 0) AS pagerank,
-                    COALESCE(a.degree_score, 0) AS degree,
-                    COALESCE(a.similarity_score, 0) AS similarity,
-                    COALESCE(a.tx_imbalance, 0) AS imbalance,
-                    COALESCE(a.amount_imbalance, 0) AS amount_imbalance,
-                    COALESCE(a.high_tx_volume, false) AS high_volume,
-                    COALESCE(a.tx_anomaly, false) AS anomaly,
-                    COALESCE(a.high_value_tx, false) AS high_value,
-                    COALESCE(a.potential_fraud, false) AS potential_fraud,
-                    COALESCE(a.potential_mule, false) AS potential_mule,
-                    COALESCE(a.suspected_fraud, false) AS suspected_fraud,
-                    COALESCE(a.cycle_boost, 0) AS cycle_boost,
-                    COALESCE(a.relation_boost, 0) AS relation_boost,
-                    COALESCE(a.high_confidence_pattern, false) AS high_confidence,
-                    COALESCE(a.concentrated_out, false) AS concentrated_out,
-                    COALESCE(a.funnel_pattern, false) AS funnel_pattern,
-                    COALESCE(a.fan_out_pattern, false) AS fan_out_pattern
-                  // Model 2: Weight behavioral patterns heavily
-                WITH a, 
-                    // Network metrics (15% weight) - reduced from 20%
-                    (pagerank * 0.05 +
-                     degree * 0.05 + 
-                     similarity * 0.05) * 0.15 +
-                    
-                    // Transaction patterns (30% weight) - increased from 25%
-                    (CASE 
-                        WHEN imbalance > 0.95 THEN 0.25
-                        WHEN imbalance > 0.85 THEN 0.20
-                        WHEN imbalance > 0.75 THEN 0.15
-                        WHEN imbalance > 0.65 THEN 0.10
-                        ELSE imbalance * 0.05
-                     END +
-                     CASE 
-                        WHEN amount_imbalance > 0.95 THEN 0.12
-                        WHEN amount_imbalance > 0.85 THEN 0.09
-                        WHEN amount_imbalance > 0.75 THEN 0.06
-                        WHEN amount_imbalance > 0.65 THEN 0.03
-                        ELSE amount_imbalance * 0.02
-                     END) * 0.30 +
-                    
-                    // Behavioral patterns (55% weight)
-                    (CASE WHEN anomaly AND high_value THEN 0.30 ELSE
-                         CASE WHEN anomaly THEN 0.20
-                         WHEN high_value THEN 0.15
-                         ELSE 0 END
-                     END +
-                     CASE WHEN high_volume THEN 0.10 ELSE 0 END +
-                     CASE WHEN potential_fraud THEN 0.45 ELSE 0 END +
-                     CASE WHEN potential_mule THEN 0.40 ELSE 0 END +
-                     CASE WHEN suspected_fraud THEN 0.35 ELSE 0 END +
-                     CASE WHEN high_confidence THEN 0.55 ELSE 0 END +
-                     CASE WHEN concentrated_out THEN 0.25 ELSE 0 END +
-                     CASE WHEN funnel_pattern AND high_value THEN 0.35
-                          WHEN funnel_pattern THEN 0.25 ELSE 0 END +
-                     CASE WHEN fan_out_pattern AND high_value THEN 0.30
-                          WHEN fan_out_pattern THEN 0.20 ELSE 0 END +
-                     cycle_boost * 0.35 +
-                     relation_boost * 0.30) * 0.55 AS model2_score
+                // Calculate pattern flags with defensive coding
+                WITH a, txs, tx_count, total_amount, avg_amount,
+                     CASE WHEN avg_amount > 10000 THEN true ELSE false END as high_value,
+                     CASE WHEN tx_count > 10 AND total_amount > 0 AND 
+                          total_amount/tx_count > 5000 THEN true ELSE false END as tx_anomaly,
+                       // Other pattern detections
+                     CASE WHEN SIZE([t IN txs WHERE round(t.amount) = t.amount 
+                          AND t.amount >= 1000]) > 1 THEN true ELSE false END as round_pattern,
+                     CASE WHEN a.burst_pattern IS NOT NULL AND a.burst_pattern = true THEN true ELSE false END as burst_pattern,
+                     CASE WHEN a.chain_pattern IS NOT NULL AND a.chain_pattern = true THEN true ELSE false END as chain_pattern,
+                     CASE WHEN a.funnel_pattern IS NOT NULL AND a.funnel_pattern = true THEN true ELSE false END as funnel_pattern
                 
-                SET a.model2_score = model2_score
-                RETURN count(a) AS processed_count
-            """
-            
-            # 5. MODEL 3: Graph pattern-based scoring
-            model3_query = """
-                MATCH (a:Account)
+                // Calculate model2 score with pattern weights
+                WITH a, high_value, tx_anomaly, round_pattern, burst_pattern, chain_pattern, funnel_pattern,
+                     (CASE 
+                        WHEN chain_pattern AND funnel_pattern THEN 0.80
+                        WHEN chain_pattern AND round_pattern THEN 0.75
+                        WHEN funnel_pattern AND round_pattern THEN 0.70
+                        WHEN chain_pattern THEN 0.65
+                        WHEN funnel_pattern THEN 0.60
+                        WHEN round_pattern THEN 0.55
+                        ELSE 0.0
+                      END) * 0.60 +
+                     
+                     // Behavioral indicators
+                     (CASE
+                        WHEN tx_anomaly AND high_value THEN 0.85
+                        WHEN tx_anomaly THEN 0.65
+                        WHEN high_value THEN 0.55
+                        WHEN burst_pattern THEN 0.50
+                        ELSE 0.0
+                      END) * 0.40
+                AS model2_score
                 
-                WITH a, 
-                    COALESCE(a.pagerank_score, 0) AS pagerank,
-                    COALESCE(a.degree_score, 0) AS degree,
-                    COALESCE(a.similarity_score, 0) AS similarity,
-                    COALESCE(a.tx_imbalance, 0) AS imbalance,
-                    COALESCE(a.amount_imbalance, 0) AS amount_imbalance,
-                    COALESCE(a.high_tx_volume, false) AS high_volume,
-                    COALESCE(a.tx_anomaly, false) AS anomaly,
-                    COALESCE(a.high_value_tx, false) AS high_value,
-                    COALESCE(a.potential_fraud, false) AS potential_fraud,
-                    COALESCE(a.potential_mule, false) AS potential_mule,
-                    COALESCE(a.suspected_fraud, false) AS suspected_fraud,
-                    COALESCE(a.cycle_boost, 0) AS cycle_boost,
-                    COALESCE(a.relation_boost, 0) AS relation_boost,
-                    COALESCE(a.high_confidence_pattern, false) AS high_confidence,
-                    COALESCE(a.layering_pattern, false) AS layering_pattern,
-                    COALESCE(a.suspicious_community, false) AS suspicious_community
+                SET a.model2_score = model2_score,
+                    a.high_value_tx = high_value,
+                    a.tx_anomaly = tx_anomaly
                 
-                // Model 3: Focus on complex graph patterns
-                OPTIONAL MATCH path1 = (a)-[:SENT*1..2]->(:Account)
-                WITH a, 
-                     COUNT(DISTINCT path1) AS out_paths,
-                     pagerank, degree, similarity, imbalance, amount_imbalance,
-                     high_volume, anomaly, high_value, potential_fraud, potential_mule,
-                     suspected_fraud, cycle_boost, relation_boost, high_confidence,
-                     layering_pattern, suspicious_community
-                
-                OPTIONAL MATCH path2 = (:Account)-[:SENT*1..2]->(a)
-                WITH a, 
-                     out_paths,
-                     COUNT(DISTINCT path2) AS in_paths,
-                     pagerank, degree, similarity, imbalance, amount_imbalance,
-                     high_volume, anomaly, high_value, potential_fraud, potential_mule,
-                     suspected_fraud, cycle_boost, relation_boost, high_confidence,
-                     layering_pattern, suspicious_community
-                
-                // Calculate path asymmetry (useful for detecting certain fraud patterns)
-                WITH a, 
-                     CASE 
-                         WHEN out_paths + in_paths > 0 
-                         THEN abs(out_paths - in_paths) / (out_paths + in_paths) 
-                         ELSE 0 
-                     END AS path_asymmetry,
-                     pagerank, degree, similarity, imbalance, amount_imbalance,
-                     high_volume, anomaly, high_value, potential_fraud, potential_mule,
-                     suspected_fraud, cycle_boost, relation_boost, high_confidence,
-                     layering_pattern, suspicious_community
-                
-                // Model 3: Weight complex patterns heavily
-                WITH a, 
-                    // Network structure (30% weight)
-                    (pagerank * 0.15 +
-                     degree * 0.10 + 
-                     similarity * 0.10 +
-                     path_asymmetry * 0.10) * 0.30 +
-                    
-                    // Transaction anomalies (15% weight)
-                    (CASE 
-                        WHEN imbalance > 0.80 THEN 0.20
-                        WHEN imbalance > 0.70 THEN 0.16
-                        WHEN imbalance > 0.60 THEN 0.12
-                        WHEN imbalance > 0.50 THEN 0.08
-                        ELSE imbalance * 0.08
-                     END +
-                     CASE WHEN anomaly THEN 0.15 ELSE 0 END) * 0.15 +
-                    
-                    // Complex patterns (55% weight)
-                    (CASE WHEN high_confidence THEN 0.30 ELSE 0 END +
-                     CASE WHEN layering_pattern THEN 0.25 ELSE 0 END +
-                     CASE WHEN suspicious_community THEN 0.20 ELSE 0 END +
-                     CASE WHEN potential_mule THEN 0.28 ELSE 0 END +
-                     CASE WHEN suspected_fraud THEN 0.30 ELSE 0 END +
-                     cycle_boost * 0.40 +
-                     relation_boost * 0.30) * 0.55 AS model3_score
-                
-                SET a.model3_score = model3_score
-                RETURN count(a) AS processed_count
+                RETURN COUNT(a) AS processed_count,
+                       SUM(CASE WHEN model2_score > 0 THEN 1 ELSE 0 END) as nonzero_count,
+                       AVG(model2_score) as avg_score
             """
 
-            # 6. Ensemble scoring - combine all models with confidence weighting
-            ensemble_query = """
+            # 3. MODEL 3: Complex Pattern Integration (35%)
+            model3_query = """
                 MATCH (a:Account)
                 WITH a,
-                     COALESCE(a.model1_score, 0) AS m1_score,
-                     COALESCE(a.model2_score, 0) AS m2_score,
-                     COALESCE(a.model3_score, 0) AS m3_score
-                  // Calculate variance between models as a confidence measure
-                // Higher variance = lower confidence
-                WITH a, m1_score, m2_score, m3_score,
-                     (m1_score + m2_score + m3_score) / 3 AS avg_score,
-                     SQRT(
-                         ((m1_score - (m1_score + m2_score + m3_score) / 3) * (m1_score - (m1_score + m2_score + m3_score) / 3) +
-                          (m2_score - (m1_score + m2_score + m3_score) / 3) * (m2_score - (m1_score + m2_score + m3_score) / 3) +
-                          (m3_score - (m1_score + m2_score + m3_score) / 3) * (m3_score - (m1_score + m2_score + m3_score) / 3)) / 3
-                     ) AS model_variance
+                    COALESCE(a.model1_score, 0) AS network_score,
+                    COALESCE(a.model2_score, 0) AS behavior_score,
+                    COALESCE(a.temporal_density, 0) AS temporal_density,
+                    COALESCE(a.step_variance, 0) AS step_variance,                    COALESCE(a.has_burst_pattern, false) AS has_burst,
+                    COALESCE(a.high_confidence_pattern, false) AS high_confidence
                 
-                // Calculate confidence level (inverse of variance, normalized)
-                WITH a, m1_score, m2_score, m3_score, avg_score, model_variance,
-                     CASE 
-                         WHEN model_variance > 0.1 THEN 0.3  // High variance = low confidence
-                         WHEN model_variance > 0.05 THEN 0.6  // Medium variance = medium confidence
-                         WHEN model_variance > 0.01 THEN 0.8  // Low variance = high confidence
-                         ELSE 1.0  // Very low variance = very high confidence
-                     END AS confidence_level
-                
-                // Identify most predictive model (closest to average)
-                WITH a, m1_score, m2_score, m3_score, avg_score, model_variance, confidence_level,
-                     CASE 
-                         WHEN ABS(m1_score - avg_score) <= ABS(m2_score - avg_score) AND 
-                              ABS(m1_score - avg_score) <= ABS(m3_score - avg_score) 
-                         THEN 'Network Structure'
-                         WHEN ABS(m2_score - avg_score) <= ABS(m1_score - avg_score) AND 
-                              ABS(m2_score - avg_score) <= ABS(m3_score - avg_score) 
-                         THEN 'Behavioral Patterns'
-                         ELSE 'Complex Patterns'
-                     END AS feature_importance
-                
-                // Final ensemble score with stricter confidence calibration
-                WITH a, m1_score, m2_score, m3_score, confidence_level, feature_importance,
-                     (m1_score * 0.25 + m2_score * 0.35 + m3_score * 0.40) * 
-                     CASE 
-                         WHEN confidence_level < 0.4 THEN confidence_level * 0.7  // More aggressive scaling for low confidence
-                         WHEN confidence_level < 0.6 THEN confidence_level * 0.85 // Moderate scaling for medium confidence
-                         ELSE confidence_level
-                     END AS ensemble_score
-                
-                // Add high-confidence boost only for strong signals
-                WITH a, ensemble_score, confidence_level, feature_importance,
-                     CASE
-                         WHEN confidence_level > 0.8 AND ensemble_score > 0.75 THEN 0.15
-                         WHEN confidence_level > 0.7 AND ensemble_score > 0.70 THEN 0.10
-                         WHEN confidence_level > 0.6 AND ensemble_score > 0.65 THEN 0.05
-                         ELSE 0
-                     END as confidence_boost
-                
-                // Set final scores with confidence boost
-                SET a.optimized_score = 
+                WITH a, network_score, behavior_score, temporal_density, 
+                     step_variance, has_burst, high_confidence,
+                     
+                    // Calculate temporal risk score
                     CASE
-                        WHEN ensemble_score + confidence_boost > 0.95 THEN 0.95  // Cap maximum score
-                        ELSE ensemble_score + confidence_boost
-                    END,
-                    a.confidence_level = confidence_level,
-                    a.feature_importance = feature_importance,
-                    a.ensemble_score = ensemble_score
-                    
-                RETURN 
-                    count(a) AS processed_count,
-                    sum(CASE WHEN ensemble_score > 0.7 THEN 1 ELSE 0 END) AS high_risk_count,
-                    sum(CASE WHEN ensemble_score > 0.6 THEN 1 ELSE 0 END) AS medium_high_risk_count,
-                    sum(CASE WHEN ensemble_score > 0.5 THEN 1 ELSE 0 END) AS medium_risk_count
+                        WHEN has_burst AND temporal_density > 2 AND step_variance < 1.0 
+                        THEN 0.90  // Strong temporal pattern
+                        WHEN has_burst AND temporal_density > 1.5 
+                        THEN 0.75  // Moderate temporal pattern
+                        WHEN temporal_density > 2 OR step_variance < 0.5
+                        THEN 0.60  // Weak temporal pattern
+                        ELSE 0.30
+                    END AS temporal_risk
+                
+                WITH a, 
+                    // Weighted combination of all signals
+                    CASE
+                        // High confidence cases
+                        WHEN high_confidence AND network_score > 0.8 AND behavior_score > 0.8
+                        THEN (network_score * 0.35 + behavior_score * 0.45 + temporal_risk * 0.20) * 1.2
+                        
+                        // Strong pattern combinations
+                        WHEN network_score > 0.7 AND behavior_score > 0.7 AND temporal_risk > 0.7
+                        THEN (network_score * 0.35 + behavior_score * 0.40 + temporal_risk * 0.25) * 1.1
+                        
+                        // Normal cases
+                        ELSE (network_score * 0.30 + behavior_score * 0.35 + temporal_risk * 0.35)
+                    END AS model3_score
+                
+                SET a.model3_score = 
+                    CASE
+                        WHEN model3_score > 0.95 THEN 0.95  // Cap maximum score
+                        ELSE model3_score
+                    END
+                RETURN COUNT(a) AS processed_count
             """
-            
-            # Execute all the model queries
+
+            # Execute all models
             print("  Running Model 1 (Network Structure)...")
             result1 = session.run(model1_query).single()
             processed1 = result1["processed_count"] if result1 else 0
-            print(f"  - Scored {processed1} accounts with Model 1")
+            print(f"  ✓ Scored {processed1} accounts with Model 1")
             
             print("  Running Model 2 (Behavioral Patterns)...")
             result2 = session.run(model2_query).single()
             processed2 = result2["processed_count"] if result2 else 0
-            print(f"  - Scored {processed2} accounts with Model 2")
+            print(f"  ✓ Scored {processed2} accounts with Model 2")
             
-            print("  Running Model 3 (Complex Patterns)...")
+            print("  Running Model 3 (Complex Integration)...")
             result3 = session.run(model3_query).single()
             processed3 = result3["processed_count"] if result3 else 0
-            print(f"  - Scored {processed3} accounts with Model 3")
-            
-            print("  Calculating ensemble scores...")
-            ensemble_result = session.run(ensemble_query).single()
-            if ensemble_result:
-                total = ensemble_result["processed_count"]
-                high = ensemble_result["high_risk_count"]
-                medium_high = ensemble_result["medium_high_risk_count"]
-                medium = ensemble_result["medium_risk_count"]
-                
-                print(f"  ✅ Ensemble scoring complete for {total} accounts")
-                print(f"    - High risk (>0.7): {high}")
-                print(f"    - Medium-high risk (>0.6): {medium_high}")
-                print(f"    - Medium risk (>0.5): {medium}")
-            
-            # Update fraud_score to use optimized_score
-            session.run("""
-                MATCH (a:Account)
-                WHERE a.optimized_score IS NOT NULL
-                SET a.fraud_score = a.optimized_score
-            """)
+            print(f"  ✓ Scored {processed3} accounts with Model 3")
+
+            # Final ensemble combination
+            print("  Calculating final ensemble scores...")
+            self._calculate_ensemble_scores(session)
             
             return True
-            
+
     def detect_specialized_patterns(self, session):
-        """Detect patterns that are specifically designed to improve the precision of fraud detection"""
-        print("Detecting specialized fraud patterns...")
+        """Detect complex transaction patterns indicating potential fraud"""
+        print("Detecting specialized transaction patterns...")
         
-        # 1. Check for round-amount transactions with high frequency
-        round_amount_query = """
-            MATCH (sender:Account)-[tx:SENT]->(receiver:Account)
-            WHERE tx.amount % 10000 = 0 AND tx.amount >= 30000
-            WITH sender, receiver, count(tx) AS round_count
+        pattern_queries = [
+            # 1. Chain pattern detection - sequential transactions
+            """
+            MATCH path=(src:Account)-[tx1:SENT]->(mid:Account)-[tx2:SENT]->(dst:Account)
+            WHERE tx2.step > tx1.step 
+            AND tx2.step - tx1.step <= $chainTimeWindow
+            WITH src, COLLECT(DISTINCT path) as paths
+            WHERE size(paths) >= $minChainLength
+            SET src.chain_pattern = true,
+                src.chain_count = size(paths)
+            RETURN COUNT(DISTINCT src) as accounts_with_chains
+            """,
+
+            # 2. Funnel pattern - multiple sources to single destination
+            """
+            MATCH (src:Account)-[tx:SENT]->(dst:Account)
+            WITH dst, COUNT(DISTINCT src) as source_count,
+                 COLLECT(DISTINCT tx) as transactions
+            WHERE source_count >= $funnelMinSources
+            SET dst.funnel_pattern = true,
+                dst.funnel_sources = source_count,
+                dst.funnel_amount = REDUCE(s = 0, t IN transactions | s + t.amount)
+            RETURN COUNT(DISTINCT dst) as accounts_with_funnels
+            """,
+
+            # 3. Round amount pattern
+            """
+            MATCH (src:Account)-[tx:SENT]->()
+            WHERE tx.amount >= $roundAmountMin
+            AND round(tx.amount) = tx.amount
+            WITH src, COUNT(tx) as round_count
             WHERE round_count >= 2
-            
-            WITH COLLECT(DISTINCT sender) + COLLECT(DISTINCT receiver) AS accounts
-            UNWIND accounts AS account
-            
-            WITH DISTINCT account
-            SET account.round_tx_pattern = true,
-                account.fraud_score = CASE 
-                    WHEN account.fraud_score IS NULL THEN 0.40
-                    WHEN account.fraud_score < 0.85 THEN account.fraud_score + 0.10
-                    ELSE account.fraud_score
-                END
-            
-            RETURN count(account) AS accounts_with_round_tx
-        """
+            SET src.round_pattern = true,
+                src.round_tx_count = round_count
+            RETURN COUNT(DISTINCT src) as accounts_with_rounds
+            """
+        ]
+
+        params = {
+            "chainTimeWindow": CHAIN_TIME_WINDOW,
+            "minChainLength": MIN_CHAIN_LENGTH,
+            "funnelMinSources": FUNNEL_MIN_SOURCES,
+            "roundAmountMin": ROUND_AMOUNT_MIN
+        }
+
+        print("\nAnalyzing specialized patterns:")
+        pattern_types = ["Chain patterns", "Funnel patterns", "Round amounts"]
         
-        # 2. Detect "funnel and disperse" patterns (collect and distribute funds)
-        funnel_disperse_query = """            // Find accounts that receive from many sources and send to many destinations
-            // with stricter patterns and time-based analysis
-            MATCH (account:Account)
-            WHERE EXISTS((account)-[:SENT]->()) AND EXISTS((account)<-[:SENT]-())
-            
-            WITH account
-            OPTIONAL MATCH (account)<-[in_tx:SENT]-(in_neighbor)
-            WHERE in_tx.amount >= 10000  // Only consider significant transactions
-            WITH account, 
-                 count(DISTINCT in_neighbor) AS in_count, 
-                 sum(in_tx.amount) AS in_amount,
-                 collect(in_tx.timestamp) AS in_timestamps
-            WHERE in_count >= 4  // Increased from 3
-            
-            OPTIONAL MATCH (account)-[out_tx:SENT]->(out_neighbor)
-            WHERE out_tx.amount >= 10000  // Only consider significant transactions
-            WITH account, in_count, in_amount, in_timestamps,
-                 count(DISTINCT out_neighbor) AS out_count, 
-                 sum(out_tx.amount) AS out_amount,
-                 collect(out_tx.timestamp) AS out_timestamps
-            WHERE out_count >= 4  // Increased from 3
-            
-            // Check if total amounts are similar (money passing through)
-            WITH account, in_count, out_count,
-                 ABS(in_amount - out_amount) / CASE WHEN in_amount > 0 THEN in_amount ELSE 1 END AS amount_diff_ratio
-            WHERE amount_diff_ratio < 0.2  // Less than 20% difference
-            
-            SET account.funnel_disperse_pattern = true,
-                account.fraud_score = CASE 
-                    WHEN account.fraud_score IS NULL THEN 0.55
-                    WHEN account.fraud_score < 0.85 THEN account.fraud_score + 0.15
-                    ELSE account.fraud_score
-                END
+        for i, query in enumerate(pattern_queries):
+            try:
+                result = session.run(query, params).single()
+                if result:
+                    count = list(result.values())[0]
+                    print(f"  {pattern_types[i]}: {count} accounts")
+            except Exception as e:
+                print(f"Error detecting {pattern_types[i]}: {str(e)}")
+                continue
+
+        # Update risk scores based on detected patterns
+        self._calculate_pattern_risk_scores(session)
+        return True
+
+    def _calculate_pattern_risk_scores(self, session):
+        """Calculate risk scores based on detected patterns"""
+        update_query = """
+        MATCH (a:Account)
+        WHERE a.chain_pattern = true OR 
+              a.funnel_pattern = true OR
+              a.round_pattern = true
+        
+        SET a.pattern_risk_score = 
+            CASE
+                // Combined patterns - highest risk
+                WHEN a.chain_pattern = true AND a.funnel_pattern = true
+                    THEN 0.9
+                WHEN a.chain_pattern = true AND a.round_pattern = true
+                    THEN 0.85
+                WHEN a.funnel_pattern = true AND a.round_pattern = true
+                    THEN 0.8
                 
-            RETURN count(account) AS accounts_with_funnel_disperse
-        """
-        
-        # 3. Find chains with incrementally increasing amounts (layering pattern variation)
-        increasing_chain_query = """
-            MATCH path = (a:Account)-[tx1:SENT]->(b:Account)-[tx2:SENT]->(c:Account)
-            WHERE tx2.amount > tx1.amount * 1.05 AND tx2.amount < tx1.amount * 1.5
-                  AND tx1.amount > 20000
-            
-            WITH a, b, c
-            SET b.increasing_chain = true,
-                a.fraud_score = CASE 
-                    WHEN a.fraud_score IS NULL THEN 0.35
-                    WHEN a.fraud_score < 0.9 THEN a.fraud_score + 0.08
-                    ELSE a.fraud_score
-                END,
-                b.fraud_score = CASE 
-                    WHEN b.fraud_score IS NULL THEN 0.45
-                    WHEN b.fraud_score < 0.9 THEN b.fraud_score + 0.12
-                    ELSE b.fraud_score
-                END,
-                c.fraud_score = CASE 
-                    WHEN c.fraud_score IS NULL THEN 0.40
-                    WHEN c.fraud_score < 0.9 THEN c.fraud_score + 0.10
-                    ELSE c.fraud_score
-                END
+                // Single patterns - moderate to high risk
+                WHEN a.chain_pattern = true AND a.chain_count >= $minChainLength * 2
+                    THEN 0.75
+                WHEN a.funnel_pattern = true AND a.funnel_sources >= $funnelMinSources * 2
+                    THEN 0.7
+                WHEN a.round_pattern = true AND a.round_tx_count >= 5
+                    THEN 0.65
                 
-            RETURN count(DISTINCT b) AS accounts_in_increasing_chains
-        """
-        
-        # 4. Find accounts with strong similarity to confirmed fraud accounts
-        fraud_similarity_query = """
-            MATCH (a:Account)-[sim:SIMILAR_TO]->(b:Account)
-            WHERE b.is_fraud = true AND sim.similarity > 0.7
-            
-            SET a.similar_to_fraud = true,
-                a.fraud_score = CASE 
-                    WHEN a.fraud_score IS NULL THEN 0.65
-                    WHEN a.fraud_score < 0.9 THEN a.fraud_score + 0.20
-                    ELSE a.fraud_score
-                END
+                // Base pattern risks
+                WHEN a.chain_pattern = true
+                    THEN 0.6
+                WHEN a.funnel_pattern = true
+                    THEN 0.55
+                WHEN a.round_pattern = true
+                    THEN 0.5
                 
-            RETURN count(a) AS accounts_similar_to_fraud
+                ELSE 0.0
+            END
         """
         
-        # Execute specialized pattern detection
-        print("  Detecting round transaction patterns...")
-        round_result = session.run(round_amount_query).single()
-        round_accounts = round_result["accounts_with_round_tx"] if round_result else 0
-        print(f"  - Found {round_accounts} accounts with round transaction patterns")
-        
-        print("  Detecting funnel and disperse patterns...")
-        funnel_result = session.run(funnel_disperse_query).single()
-        funnel_accounts = funnel_result["accounts_with_funnel_disperse"] if funnel_result else 0
-        print(f"  - Found {funnel_accounts} accounts with funnel and disperse patterns")
-        
-        print("  Detecting increasing chain patterns...")
-        chain_result = session.run(increasing_chain_query).single()
-        chain_accounts = chain_result["accounts_in_increasing_chains"] if chain_result else 0
-        print(f"  - Found {chain_accounts} accounts in increasing amount chains")
-        
-        print("  Detecting similarity to known fraud accounts...")
-        sim_result = session.run(fraud_similarity_query).single()
-        sim_accounts = sim_result["accounts_similar_to_fraud"] if sim_result else 0
-        print(f"  - Found {sim_accounts} accounts similar to known fraud")
-        
-        return round_accounts + funnel_accounts + chain_accounts + sim_accounts
-        
+        session.run(update_query, {
+            "minChainLength": MIN_CHAIN_LENGTH,
+            "funnelMinSources": FUNNEL_MIN_SOURCES
+        })
+
     def analyze_transaction_velocity(self, session):
         """Analyze the velocity of transactions to identify burst patterns"""
         print("Analyzing transaction velocity patterns...")
         
         # Check if we have timestamp data
         has_timestamps = session.run("""
-            MATCH ()-[r:SENT]->() 
-            WHERE r.timestamp IS NOT NULL 
-            RETURN count(r) > 0 AS has_timestamps
+            MATCH ()-[r:SENT]->()
+            WHERE r.timestamp IS NOT NULL
+            RETURN COUNT(r) > 0 AS has_timestamps
         """).single()
-        
-        if not has_timestamps or not has_timestamps.get("has_timestamps", False):
-            print("  No timestamp data available for velocity analysis")
-            return 0
-            
-        # Analyze transaction velocity
+
+        # If no timestamps, use step field
         velocity_query = """
             MATCH (a:Account)-[tx:SENT]->()
-            WHERE tx.timestamp IS NOT NULL
+            WITH a, tx ORDER BY a, tx.step
+            WITH a, COLLECT(tx) AS transactions
+            WHERE SIZE(transactions) > 1
             
-            WITH a, tx ORDER BY a, tx.timestamp
-            WITH a, collect(tx) AS transactions
-            WHERE size(transactions) >= 3
-            
-            // Calculate time differences between consecutive transactions
             WITH a, transactions,
-                 [i IN range(0, size(transactions)-2) | 
-                  duration.between(transactions[i].timestamp, 
-                                  transactions[i+1].timestamp).hours] AS time_diffs
-            
-            // Calculate average time between transactions
+                 // Calculate time differences between consecutive transactions
+                 REDUCE(diffs = [], i IN RANGE(0, SIZE(transactions)-2) |
+                     diffs + [transactions[i+1].step - transactions[i].step]
+                 ) AS time_diffs
+                 
             WITH a, transactions, time_diffs,
-                 reduce(total = 0, t IN time_diffs | total + t) / size(time_diffs) AS avg_time_diff
+                 // Calculate average time between transactions
+                 toFloat(REDUCE(total = 0, t IN time_diffs | total + t)) / SIZE(time_diffs) AS avg_time_diff
             
-            // Count rapid transactions (significantly faster than average)
             WITH a, transactions, time_diffs, avg_time_diff,
-                 size([t IN time_diffs WHERE t < avg_time_diff * 0.5]) AS rapid_tx_count
-            
+                 // Count rapid transactions (significantly faster than average)
+                 SIZE([x IN time_diffs WHERE x < avg_time_diff * 0.5]) AS rapid_tx_count
+                 
             // Calculate transaction velocity score
-            WITH a, size(transactions) AS tx_count, rapid_tx_count,
-                 1.0 * rapid_tx_count / size(time_diffs) AS velocity_ratio
+            WITH a, SIZE(transactions) AS tx_count, rapid_tx_count,
+                 toFloat(rapid_tx_count) / SIZE(transactions) AS velocity_ratio
             
-            WHERE velocity_ratio > 0.4  // At least 40% of transactions are rapid
-            
+            // Update account properties with velocity metrics
             SET a.high_velocity = true,
                 a.velocity_ratio = velocity_ratio,
-                a.fraud_score = CASE 
-                    WHEN a.fraud_score IS NULL THEN 0.35 + (velocity_ratio * 0.3)
-                    WHEN a.fraud_score < 0.9 THEN a.fraud_score + (velocity_ratio * 0.15)
-                    ELSE a.fraud_score
-                END
-                
-            RETURN count(a) AS high_velocity_accounts
+                a.fraud_score =
+                    CASE
+                        WHEN a.fraud_score IS NULL 
+                            THEN 0.35 + (velocity_ratio * 0.3)
+                        WHEN a.fraud_score < 0.9 
+                            THEN a.fraud_score + (velocity_ratio * 0.15)
+                        ELSE a.fraud_score
+                    END
+            
+            RETURN COUNT(a) AS accounts_analyzed,
+                   AVG(velocity_ratio) AS avg_velocity_ratio,
+                   SUM(CASE WHEN velocity_ratio > 0.5 THEN 1 ELSE 0 END) AS high_velocity_accounts
         """
         
         # Execute velocity analysis
@@ -560,123 +533,131 @@ class PatternDetector:
         print(f"  Found {velocity_accounts} accounts with high transaction velocity")
         
         return velocity_accounts
-        
+
     def calculate_final_risk_score(self, session):
-        """Calculate final risk score using calibrated thresholds to improve precision"""
-        print("Calculating final calibrated risk scores...")
+        """Calculate final risk scores using ensemble approach"""
+        print("Calculating final risk scores...")
+
+        update_query = """
+        MATCH (a:Account)
+        WITH a,
+             COALESCE(a.model1_score, 0.0) as model1_score,
+             COALESCE(a.model2_score, 0.0) as model2_score,
+             COALESCE(a.model3_score, 0.0) as model3_score,
+             COALESCE(a.temporal_risk_score, 0.0) as temporal_score,
+             COALESCE(a.velocity_risk_score, 0.0) as velocity_score
+             
+        // Calculate final fraud score with combined model weights
+        WITH a,
+             model1_score * 0.30 +     // Network structure model (30%)
+             model2_score * 0.35 +     // Behavioral patterns model (35%)
+             model3_score * 0.35       // Complex pattern model (35%)
+             as ensemble_score
         
-        # Get basic statistics
-        basic_stats = session.run("""
-            MATCH (a:Account)
-            WHERE a.fraud_score IS NOT NULL
-            RETURN 
-                min(a.fraud_score) AS min_score,
-                max(a.fraud_score) AS max_score,
-                avg(a.fraud_score) AS avg_score
-        """).single()
+        // Apply minimum score for those with high model1 or model2 score
+        WITH a, ensemble_score,
+            CASE
+                WHEN ensemble_score < 0.4 AND (
+                    COALESCE(a.model1_score, 0) > 0.7 OR 
+                    COALESCE(a.model2_score, 0) > 0.7
+                ) THEN 0.4
+                ELSE ensemble_score
+            END as adjusted_score
         
-        # Get percentiles separately
-        percentiles = session.run("""
-            MATCH (a:Account)
-            WHERE a.fraud_score IS NOT NULL
-            WITH a.fraud_score AS score
-            ORDER BY score
-            WITH COLLECT(score) AS scores
-            WITH size(scores) AS count, scores
-            RETURN
-                scores[toInteger(count * 0.9) - 1] AS percentile_90,
-                scores[toInteger(count * 0.95) - 1] AS percentile_95,
-                scores[toInteger(count * 0.99) - 1] AS percentile_99
-        """).single()
+        // Set final fraud score and risk level
+        SET a.fraud_score = adjusted_score,
+            a.risk_level = 
+                CASE
+                    WHEN adjusted_score >= $veryHighRisk THEN 'VERY_HIGH_RISK'
+                    WHEN adjusted_score >= $highRisk THEN 'HIGH_RISK'
+                    WHEN adjusted_score >= $suspicious THEN 'SUSPICIOUS'
+                    ELSE 'NORMAL'
+                END
         
-        # Combine results
-        min_score = basic_stats.get("min_score", 0) if basic_stats else 0
-        max_score = basic_stats.get("max_score", 1) if basic_stats else 1
-        avg_score = basic_stats.get("avg_score", 0.5) if basic_stats else 0.5
-        p90 = percentiles.get("percentile_90", 0.7) if percentiles else 0.7
-        p95 = percentiles.get("percentile_95", 0.8) if percentiles else 0.8
-        p99 = percentiles.get("percentile_99", 0.9) if percentiles else 0.9
-        print(f"  Score distribution - Min: {min_score:.3f}, Avg: {avg_score:.3f}, Max: {max_score:.3f}")
-        print(f"  Percentiles - P90: {p90:.3f}, P95: {p95:.3f}, P99: {p99:.3f}")
-        
-        # Calculate high-confidence thresholds based on distribution with stricter criteria
-        high_confidence_threshold = max(0.75, p90)  # Increased from 0.7
-        very_high_confidence_threshold = max(0.85, p95)  # Increased from 0.8
-        
-        # Apply calibrated thresholds with stricter criteria
-        calibration_query = f"""
-            MATCH (a:Account)
-            WHERE a.fraud_score IS NOT NULL
-            
-            // Apply calibration with more aggressive adjustments
-            SET a.calibrated_score = CASE
-                // Significant upweight for very high confidence and multiple strong indicators
-                WHEN a.confidence_level > 0.9 AND a.fraud_score > {p95} AND
-                     size([x IN a.risk_factors WHERE x IN ['high_confidence_pattern', 'transaction_anomaly', 
-                     'money_mule', 'suspicious_cycle']]) >= 3 THEN  // Increased from 2
-                    CASE 
-                        WHEN a.fraud_score * 1.25 > 0.95 THEN 0.95  // Cap at 0.95
-                        ELSE a.fraud_score * 1.25
-                    END
-                
-                // Upweight accounts with specific high-risk patterns and high confidence
-                WHEN (a.similar_to_fraud = true OR a.high_confidence_pattern = true OR
-                      a.funnel_disperse_pattern = true) AND a.fraud_score > {p90} AND
-                      a.confidence_level > 0.8 THEN  // Added confidence check
-                    CASE
-                        WHEN a.fraud_score * 1.15 > 0.90 THEN 0.90
-                        ELSE a.fraud_score * 1.15
-                    END
-                    
-                // Significant downweight for low-confidence high scores
-                WHEN a.confidence_level < 0.4 AND a.fraud_score > {avg_score} THEN
-                    a.fraud_score * 0.70  // More aggressive downweight
-                    
-                // Moderate downweight for medium-confidence high scores
-                WHEN a.confidence_level < 0.6 AND a.fraud_score > {p90} THEN
-                    a.fraud_score * 0.85
-                
-                ELSE a.fraud_score  // Keep original score
-            END,
-            
-            // Set calibrated risk level with stricter thresholds
-            a.risk_level = CASE
-                WHEN a.calibrated_score > {very_high_confidence_threshold} AND
-                     a.confidence_level > 0.8 THEN 'very_high'  // Added confidence requirement
-                WHEN a.calibrated_score > {high_confidence_threshold} AND
-                     a.confidence_level > 0.7 THEN 'high'  // Added confidence requirement
-                WHEN a.calibrated_score > {avg_score} * 1.5 THEN 'medium'
-                ELSE 'low'
-            END
-            
-            RETURN
-                count(a) AS processed,
-                count(CASE WHEN a.risk_level = 'very_high' THEN a END) AS very_high,
-                count(CASE WHEN a.risk_level = 'high' THEN a END) AS high,
-                count(CASE WHEN a.risk_level = 'medium' THEN a END) AS medium,
-                count(CASE WHEN a.risk_level = 'low' THEN a END) AS low
+        RETURN COUNT(a) as updated_accounts,
+               SUM(CASE WHEN adjusted_score >= $fraudThreshold THEN 1 ELSE 0 END) as fraud_accounts,
+               AVG(adjusted_score) as avg_score,
+               MIN(adjusted_score) as min_score,
+               MAX(adjusted_score) as max_score
         """
         
-        # Execute calibration
-        cal_result = session.run(calibration_query).single()
-        if cal_result:
-            processed = cal_result.get("processed", 0)
-            very_high = cal_result.get("very_high", 0)
-            high = cal_result.get("high", 0)
-            medium = cal_result.get("medium", 0)
-            low = cal_result.get("low", 0)
-            
-            print(f"  ✅ Calibrated {processed} accounts:")
-            print(f"    - Very high risk: {very_high} ({very_high/processed*100:.1f}%)")
-            print(f"    - High risk: {high} ({high/processed*100:.1f}%)")
-            print(f"    - Medium risk: {medium} ({medium/processed*100:.1f}%)")
-            print(f"    - Low risk: {low} ({low/processed*100:.1f}%)")
+        result = session.run(update_query, {
+            "veryHighRisk": VERY_HIGH_RISK_THRESHOLD,
+            "highRisk": HIGH_RISK_THRESHOLD,
+            "suspicious": SUSPICIOUS_THRESHOLD,
+            "fraudThreshold": FRAUD_SCORE_THRESHOLD
+        }).single()
         
-        # Update fraud_score to use calibrated score
-        session.run("""
-            MATCH (a:Account)
-            WHERE a.calibrated_score IS NOT NULL
-            SET a.fraud_score = a.calibrated_score
-        """)
-    
+        if result:
+            print(f"\nRisk Score Summary:")
+            print(f"  Total accounts analyzed: {result['updated_accounts']}")
+            print(f"  Accounts above fraud threshold: {result['fraud_accounts']}")
+            print(f"  Score range: {result['min_score']:.3f} - {result['max_score']:.3f}")
+            print(f"  Average risk score: {result['avg_score']:.3f}")
+        
         return True
+
+    def _calculate_ensemble_scores(self, session):
+        """Calculate ensemble scores using the ensemble model"""
+        try:
+            query = """
+            MATCH (a:Account)
+            WITH a,
+                 // Directly use model scores from previous steps
+                 COALESCE(a.model1_score, 0) * 0.3 +
+                 COALESCE(a.model2_score, 0) * 0.35 +
+                 COALESCE(a.model3_score, 0) * 0.35 as base_score,
+                   // Add bonus for accounts with multiple flags
+                 CASE WHEN (
+                     (CASE WHEN a.high_value_tx IS NOT NULL AND a.high_value_tx = true THEN 1 ELSE 0 END) +
+                     (CASE WHEN a.tx_anomaly IS NOT NULL AND a.tx_anomaly = true THEN 1 ELSE 0 END) +
+                     (CASE WHEN a.round_pattern IS NOT NULL AND a.round_pattern = true THEN 1 ELSE 0 END) +
+                     (CASE WHEN a.chain_pattern IS NOT NULL AND a.chain_pattern = true THEN 1 ELSE 0 END) +
+                     (CASE WHEN a.funnel_pattern IS NOT NULL AND a.funnel_pattern = true THEN 1 ELSE 0 END) +
+                     (CASE WHEN a.burst_pattern IS NOT NULL AND a.burst_pattern = true THEN 1 ELSE 0 END)
+                 ) >= 2 THEN 0.2 ELSE 0 END as pattern_bonus
+            
+            WITH a, base_score, pattern_bonus,                 // Apply base floor for accounts with at least one high risk flag
+                 CASE WHEN (a.isFraud IS NOT NULL AND a.isFraud = 1) OR 
+                          (a.high_value_tx IS NOT NULL AND a.high_value_tx = true) OR
+                          (a.chain_pattern IS NOT NULL AND a.chain_pattern = true)
+                      THEN 0.4
+                      ELSE 0
+                 END as minimum_score
+            
+            // Calculate final ensemble score
+            WITH a, 
+                 CASE WHEN base_score + pattern_bonus > minimum_score
+                      THEN base_score + pattern_bonus
+                      ELSE minimum_score
+                 END as ensemble_score
+            
+            SET a.ensemble_score = ensemble_score
+            
+            RETURN COUNT(a) as scored_accounts,
+                   COUNT(CASE WHEN ensemble_score >= $fraudThreshold THEN 1 END) as fraud_accounts,
+                   AVG(ensemble_score) as avg_score,
+                   MAX(ensemble_score) as max_score
+            """
+            
+            result = session.run(query, {
+                "fraudThreshold": FRAUD_SCORE_THRESHOLD
+            }).single()
+            
+            print("\nEnsemble Score Summary:")
+            if result and result['scored_accounts'] > 0:
+                print(f"  Total accounts processed: {result['scored_accounts']}")
+                print(f"  Accounts above fraud threshold: {result['fraud_accounts']}")
+                if result['avg_score'] is not None:
+                    print(f"  Average score: {result['avg_score']:.3f}")
+                    print(f"  Maximum score: {result['max_score']:.3f}")
+                else:
+                    print("  Average score: N/A")
+            else:
+                print("  No accounts were scored")
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error calculating ensemble scores: {str(e)}")
+            return False

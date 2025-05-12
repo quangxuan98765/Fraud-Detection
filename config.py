@@ -14,9 +14,22 @@ DEFAULT_TARGET_EDGES = 193500
 DEFAULT_FRAUD_RATE = 0.00129
 
 # Fraud detection thresholds
-FRAUD_SCORE_THRESHOLD = 0.65     # Increased threshold for better precision
-SUSPICIOUS_THRESHOLD = 0.45      # Increased threshold for suspicious accounts
-HIGH_RISK_THRESHOLD = 0.80       # Increased threshold for high-risk accounts
+FRAUD_SCORE_THRESHOLD = 0.40     # Significantly lowered to improve detection
+SUSPICIOUS_THRESHOLD = 0.30      # Lowered to catch more potential patterns
+HIGH_RISK_THRESHOLD = 0.50       # Adjusted down for better detection
+VERY_HIGH_RISK_THRESHOLD = 0.70  # Lowered but still strict for highest risk
+
+# Pattern detection thresholds
+MIN_CONFIDENCE_LEVEL = 0.2       # Lowered to consider more patterns
+BURST_CONFIDENCE = 0.6           # Adjusted for better sensitivity
+CHAIN_CONFIDENCE = 0.55          # Lowered to detect more chain patterns
+FUNNEL_CONFIDENCE = 0.5          # Lowered for improved funnel detection
+VELOCITY_THRESHOLD = 2           # Lowered to detect more high velocity accounts
+ROUND_AMOUNT_MIN = 500          # Lowered to catch more round transactions
+CHAIN_TIME_WINDOW = 24          # Increased window for chain detection
+MIN_CHAIN_LENGTH = 2            # Lowered to catch shorter chains
+FUNNEL_MIN_SOURCES = 2          # Lowered to detect more funnel patterns
+BURST_WINDOW_HOURS = 2          # Increased window for burst detection
 
 # Enhanced detection configuration
 MULE_DETECTION_ENABLED = True
