@@ -81,7 +81,12 @@ class PatternDetector:
             # Final ensemble combination
             print("  Calculating final ensemble scores...")
             self._calculate_ensemble_scores(session)
-            
+
+            print("  Detecting high-confidence fraud patterns...")
+            high_confidence_result = session.run(self.queries.HIGH_CONFIDENCE_PATTERN_QUERY).single()
+            high_confidence_count = high_confidence_result.get("high_confidence_accounts", 0) if high_confidence_result else 0
+            print(f"  ✓ Found {high_confidence_count} high-confidence fraud patterns")
+                    
             return True
 
     def detect_specialized_patterns(self, session):
