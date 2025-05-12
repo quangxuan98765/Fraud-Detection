@@ -4,26 +4,27 @@ class FraudDetectorQueries:
         return f"""
             MATCH (a:Account)
             WHERE 
-                (a.fraud_score > {threshold} OR a.ensemble_score > {threshold}) OR  // Use both score types
-                (a.model1_score > 0.6) OR  // Include accounts with high model1 scores
-                (a.temporal_risk_score > 0.7) OR  // Include accounts with high temporal risk
-                (a.pattern_risk_score > 0.7) OR  // Include accounts with high pattern risk
-                (a.risk_level = 'VERY_HIGH_RISK' OR a.risk_level = 'HIGH_RISK')
+                // ONLY mark as high risk if truly high confidence or score
+                (a.fraud_score >= {threshold + 0.2}) OR  // Must be well above threshold
+                (a.ensemble_score >= {threshold + 0.2}) OR  // Must be well above threshold
+                (a.high_confidence_pattern = true AND a.model1_score > 0.7) OR  // High confidence with high model1
+                (a.model1_score > 0.8) OR  // Very high model1 score
+                (a.funnel_pattern = true AND a.model1_score > 0.6)  // Funnel pattern with significant model1
             
             SET a.high_risk = true,
-                a.risk_factors = CASE WHEN a.fraud_score > {threshold} OR a.ensemble_score > {threshold} THEN ['high_fraud_score'] ELSE [] END
-                    + CASE WHEN a.model1_score > 0.6 THEN ['network_structure'] ELSE [] END
-                    + CASE WHEN a.model2_score > 0.6 THEN ['behavior_patterns'] ELSE [] END
-                    + CASE WHEN a.model3_score > 0.6 THEN ['complex_patterns'] ELSE [] END
+                a.risk_factors = 
+                    CASE WHEN a.fraud_score >= {threshold + 0.2} OR a.ensemble_score >= {threshold + 0.2} 
+                        THEN ['high_fraud_score'] ELSE [] END
+                    + CASE WHEN a.model1_score > 0.7 THEN ['network_structure'] ELSE [] END
+                    + CASE WHEN a.model2_score > 0.7 THEN ['behavior_patterns'] ELSE [] END
+                    + CASE WHEN a.model3_score > 0.7 THEN ['complex_patterns'] ELSE [] END
                     + CASE WHEN a.tx_anomaly = true THEN ['transaction_anomaly'] ELSE [] END
-                    + CASE WHEN a.cycle_boost > 0.2 THEN ['suspicious_cycle'] ELSE [] END
-                    + CASE WHEN a.potential_mule = true THEN ['money_mule'] ELSE [] END
-                    + CASE WHEN a.high_confidence_pattern = true THEN ['high_confidence_pattern'] ELSE [] END
-                    + CASE WHEN a.similar_to_fraud = true THEN ['similar_to_fraud'] ELSE [] END
                     + CASE WHEN a.funnel_pattern = true THEN ['funnel_disperse'] ELSE [] END
                     + CASE WHEN a.round_pattern = true THEN ['round_transactions'] ELSE [] END
                     + CASE WHEN a.chain_pattern = true THEN ['increasing_chain'] ELSE [] END
                     + CASE WHEN a.high_velocity = true THEN ['high_velocity'] ELSE [] END
+            
+            RETURN COUNT(a) as high_risk_count
         """
     
     # Detection effectiveness validation query

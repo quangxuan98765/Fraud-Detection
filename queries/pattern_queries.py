@@ -242,94 +242,119 @@ class PatternQueries:
                 REDUCE(s = 0, t IN in_txs | s + t.amount) 
                 ELSE 0 END as in_amount
         
-        // Calculate additional behavior patterns
+        // Calculate transaction imbalance with EXTREME selectivity
         WITH a, out_txs, in_txs, out_count, in_count, out_amount, in_amount,
-            // Transaction imbalance ratio
+            // Transaction imbalance - MUCH more selective
             CASE 
-                WHEN in_count + out_count = 0 THEN 0
-                WHEN in_count = 0 AND out_count > 0 THEN 1.0
-                WHEN out_count = 0 AND in_count > 0 THEN 1.0
-                ELSE abs(in_count - out_count) / (in_count + out_count)
+                // Only consider accounts with significant transaction volume
+                WHEN in_count + out_count < 5 THEN 0.0
+                
+                // Extremely strict one-way flow conditions
+                WHEN in_count = 0 AND out_count > 10 THEN 1.0  // Major one-way out
+                WHEN out_count = 0 AND in_count > 10 THEN 1.0  // Major one-way in
+                
+                // Significant imbalance in count
+                WHEN in_count + out_count >= 5 AND abs(in_count - out_count) / (in_count + out_count) > 0.8 THEN
+                    abs(in_count - out_count) / (in_count + out_count)
+                ELSE 0.3  // Default lower value
             END as tx_count_imbalance,
             
-            // Amount imbalance ratio
+            // Amount imbalance - MUCH more selective
             CASE 
-                WHEN in_amount + out_amount = 0 THEN 0
-                WHEN in_amount = 0 AND out_amount > 0 THEN 1.0
-                WHEN out_amount = 0 AND in_amount > 0 THEN 1.0
-                ELSE abs(in_amount - out_amount) / (in_amount + out_amount)
+                // Only consider accounts with significant amounts
+                WHEN in_amount + out_amount < 10000 THEN 0.0
+                
+                // Extreme one-way flow with significant amounts
+                WHEN in_amount = 0 AND out_amount > 50000 THEN 1.0
+                WHEN out_amount = 0 AND in_amount > 50000 THEN 1.0
+                
+                // Significant amount imbalance
+                WHEN in_amount + out_amount >= 10000 AND abs(in_amount - out_amount) / (in_amount + out_amount) > 0.9 THEN
+                    abs(in_amount - out_amount) / (in_amount + out_amount)
+                ELSE 0.3
             END as amount_imbalance,
             
-            // High value transactions (>5000)
-            [t IN out_txs WHERE t.amount > 5000] as high_value_txs,
+            // High value transactions - much higher threshold
+            [t IN out_txs WHERE t.amount > 20000] as high_value_txs,
             
-            // Round amount transactions
-            [t IN out_txs WHERE round(t.amount) = t.amount AND t.amount >= 1000] as round_txs,
+            // Round amount transactions - stronger criteria
+            [t IN out_txs WHERE round(t.amount) = t.amount AND t.amount >= 10000 
+                            AND t.amount % 5000 = 0] as round_txs,
             
-            // Detect transaction bursts
-            CASE WHEN size(out_txs) >= 3 THEN
-                // Count transactions with same step (timestamp)
+            // Burst patterns - more selective
+            CASE WHEN size(out_txs) >= 10 THEN
                 SIZE(REDUCE(steps = [], t IN out_txs | 
                     CASE WHEN NOT t.step IN steps THEN steps + [t.step] ELSE steps END
-                )) < size(out_txs) * 0.7  // If < 70% unique timestamps, bursts exist
+                )) < size(out_txs) * 0.5  // Require even more concentrated (< 50% unique)
             ELSE false END as has_bursts
         
-        // Calculate behavioral risk factors
-        WITH a, tx_count_imbalance, amount_imbalance, 
-            size(high_value_txs) > 0 as has_high_value,
-            size(round_txs) >= 2 as has_round_amounts,
+        // Calculate behavioral risk factors with much stricter criteria
+        WITH a, tx_count_imbalance, amount_imbalance, out_amount, in_amount,
+            size(high_value_txs) >= 3 as has_high_value,  // Must have 3+ high-value txs
+            size(round_txs) >= 3 as has_round_amounts,    // Must have 3+ round amount txs
             has_bursts,
             out_count, in_count
             
-        // Calculate model2 score with behavioral factors
-        WITH a, tx_count_imbalance, amount_imbalance, has_high_value, has_round_amounts, has_bursts, out_count, in_count,
-            // Transaction imbalance component (40%)
+        // CRITICAL: Make tx_anomaly definition extremely selective
+        WITH a, tx_count_imbalance, amount_imbalance, has_high_value, has_round_amounts, has_bursts, 
+            out_count, in_count, out_amount, in_amount,
+            (tx_count_imbalance > 0.95 AND amount_imbalance > 0.95) OR  // Both imbalances must be extreme
+            (tx_count_imbalance > 0.95 AND out_count + in_count >= 20) OR // Extreme imbalance with high volume
+            (amount_imbalance > 0.95 AND out_amount + in_amount >= 100000) // Extreme amount imbalance with high value
+            as is_anomaly
+        
+        // Calculate model2 score with much more selective criteria
+        WITH a, tx_count_imbalance, amount_imbalance, has_high_value, has_round_amounts, has_bursts, 
+            out_count, in_count, is_anomaly,
+            // Transaction imbalance component (40%) - MUCH stricter
             CASE
-                WHEN tx_count_imbalance > 0.8 AND amount_imbalance > 0.8 THEN 0.9
-                WHEN tx_count_imbalance > 0.8 OR amount_imbalance > 0.8 THEN 0.8
-                WHEN tx_count_imbalance > 0.6 AND amount_imbalance > 0.6 THEN 0.7
-                WHEN tx_count_imbalance > 0.6 OR amount_imbalance > 0.6 THEN 0.6
-                WHEN tx_count_imbalance > 0.4 OR amount_imbalance > 0.4 THEN 0.4
-                ELSE 0.2
+                WHEN tx_count_imbalance > 0.95 AND amount_imbalance > 0.95 AND (out_count + in_count >= 10) THEN 0.95
+                WHEN tx_count_imbalance > 0.95 OR amount_imbalance > 0.95 THEN 0.80
+                WHEN tx_count_imbalance > 0.9 AND amount_imbalance > 0.9 THEN 0.75
+                WHEN tx_count_imbalance > 0.9 OR amount_imbalance > 0.9 THEN 0.60
+                WHEN tx_count_imbalance > 0.8 AND amount_imbalance > 0.8 THEN 0.50
+                ELSE 0.0  // Default to zero for normal patterns
             END * 0.4 as imbalance_component,
             
-            // Transaction pattern component (35%)
+            // Transaction pattern component (35%) - require stronger combinations
             CASE
-                WHEN has_high_value AND has_round_amounts AND has_bursts THEN 0.9
-                WHEN has_high_value AND (has_round_amounts OR has_bursts) THEN 0.8
-                WHEN has_round_amounts AND has_bursts THEN 0.7
-                WHEN has_high_value THEN 0.6
-                WHEN has_round_amounts THEN 0.5
-                WHEN has_bursts THEN 0.4
-                ELSE 0.1
+                WHEN has_high_value AND has_round_amounts AND has_bursts THEN 0.95
+                WHEN has_high_value AND has_round_amounts THEN 0.70
+                WHEN has_high_value AND has_bursts THEN 0.60
+                WHEN has_round_amounts AND has_bursts THEN 0.55
+                WHEN has_high_value THEN 0.25
+                WHEN has_round_amounts THEN 0.20
+                WHEN has_bursts THEN 0.15
+                ELSE 0.0
             END * 0.35 as pattern_component,
             
-            // Volume component (25%)
+            // Volume component (25%) - much stricter
             CASE
-                WHEN out_count > 10 OR in_count > 10 THEN 1.0
-                WHEN out_count > 5 OR in_count > 5 THEN 0.8
-                WHEN out_count > 0 OR in_count > 0 THEN 0.5
+                WHEN out_count > 30 OR in_count > 30 THEN 1.0
+                WHEN out_count > 20 OR in_count > 20 THEN 0.8
+                WHEN out_count > 10 OR in_count > 10 THEN 0.5
                 ELSE 0.0
             END * 0.25 as volume_component
         
         // Calculate final model2 score
         WITH a, imbalance_component, pattern_component, volume_component,
             has_high_value, has_round_amounts, has_bursts,
-            tx_count_imbalance, amount_imbalance,
+            tx_count_imbalance, amount_imbalance, is_anomaly,
             imbalance_component + pattern_component + volume_component as raw_score
         
-        // Set model2 score and pattern flags
+        // Set model2 score and pattern flags - EXTREMELY SELECTIVE on tx_anomaly
         SET a.model2_score = 
             CASE
                 WHEN raw_score > 1.0 THEN 1.0
                 ELSE raw_score
             END,
             a.high_value_tx = has_high_value,
-            a.tx_anomaly = tx_count_imbalance > 0.8 OR amount_imbalance > 0.8,
+            a.tx_anomaly = is_anomaly,  // Using the new highly selective definition
             a.round_pattern = has_round_amounts,
             a.burst_pattern = has_bursts
         
         RETURN COUNT(a) AS processed_count,
+            SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomaly_count,
             SUM(CASE WHEN raw_score > 0.6 THEN 1 ELSE 0 END) as high_risk_count,
             AVG(CASE WHEN raw_score > 1.0 THEN 1.0 ELSE raw_score END) as avg_score
     """
@@ -393,14 +418,45 @@ class PatternQueries:
 
     # Specialized pattern queries
     CHAIN_PATTERN_QUERY = """
-        MATCH path=(src:Account)-[tx1:SENT]->(mid:Account)-[tx2:SENT]->(dst:Account)
-        WHERE tx2.step > tx1.step 
-        AND tx2.step - tx1.step <= $chainTimeWindow
-        WITH src, COLLECT(DISTINCT path) as paths
-        WHERE size(paths) >= $minChainLength
-        SET src.chain_pattern = true,
-            src.chain_count = size(paths)
-        RETURN COUNT(DISTINCT src) as accounts_with_chains
+        // Find chain patterns (A->B->C->D where amounts are similar)
+        MATCH path = (a:Account)-[tx1:SENT]->(b:Account)-[tx2:SENT]->(c:Account)
+        WHERE 
+            // Transaction happened within a short time window
+            abs(tx1.step - tx2.step) <= 2 
+            
+            // Second amount is similar to first (allowing for small fee)
+            AND abs(tx1.amount - tx2.amount) / tx1.amount < 0.1
+            
+            // Minimum amount to consider
+            AND tx1.amount >= 5000
+        
+        WITH a, b, c, path, tx1, tx2
+        
+        // Look for longer chains (3+ links)
+        OPTIONAL MATCH extended = (c)-[tx3:SENT]->(d:Account)
+        WHERE 
+            abs(tx2.step - tx3.step) <= 2
+            AND abs(tx2.amount - tx3.amount) / tx2.amount < 0.1
+        
+        WITH a, b, c, path, tx1, tx2, extended, tx3, d
+        
+        // Set chain pattern on all accounts in the chain
+        WITH CASE WHEN extended IS NOT NULL THEN [a, b, c, d] ELSE [a, b, c] END as chain_accounts,
+            CASE WHEN extended IS NOT NULL THEN 4 ELSE 3 END as chain_length,
+            CASE WHEN extended IS NOT NULL THEN tx1.amount ELSE tx1.amount END as chain_amount
+        
+        UNWIND chain_accounts as account
+        WITH DISTINCT account, max(chain_length) as longest_chain, max(chain_amount) as highest_amount
+        
+        // Set pattern flags
+        SET account.chain_pattern = true,
+            account.pattern_risk_score = CASE
+                                        WHEN longest_chain >= 4 THEN 0.85
+                                        WHEN longest_chain = 3 AND highest_amount >= 10000 THEN 0.75
+                                        ELSE 0.65
+                                        END
+        
+        RETURN count(distinct account) as chain_pattern_accounts
     """
 
     FUNNEL_PATTERN_QUERY = """
@@ -415,14 +471,41 @@ class PatternQueries:
     """
 
     ROUND_AMOUNT_QUERY = """
-        MATCH (src:Account)-[tx:SENT]->()
-        WHERE tx.amount >= $roundAmountMin
-        AND round(tx.amount) = tx.amount
-        WITH src, COUNT(tx) as round_count
-        WHERE round_count >= 2
-        SET src.round_pattern = true,
-            src.round_tx_count = round_count
-        RETURN COUNT(DISTINCT src) as accounts_with_rounds
+        // Find accounts with round amount transactions pattern
+        MATCH (account:Account)-[tx:SENT]->()
+        WITH account, tx
+        WHERE 
+            // Exact round amounts (multiples of significant values)
+            (tx.amount % 10000 = 0 AND tx.amount >= 10000) OR
+            (tx.amount % 5000 = 0 AND tx.amount >= 5000) OR
+            (tx.amount % 1000 = 0 AND tx.amount >= 1000)
+        
+        // Group by account and count round transactions
+        WITH account, count(tx) as round_tx_count, collect(tx) as round_txs
+        WHERE round_tx_count >= 2  // Account must have at least 2 round transactions
+        
+        // Calculate percentage of round amount transactions
+        MATCH (account)-[all_tx:SENT]->()
+        WITH account, round_tx_count, round_txs, count(all_tx) as total_tx_count
+        
+        // Calculate risk score based on pattern strength
+        WITH account, round_tx_count, total_tx_count,
+            1.0 * round_tx_count / total_tx_count as round_tx_ratio,
+            REDUCE(total = 0, tx IN round_txs | total + tx.amount) as round_amount_total
+        
+        // Only mark accounts with significant round transaction behavior
+        WHERE round_tx_ratio >= 0.5 OR round_tx_count >= 3
+        
+        // Set pattern flags and score
+        SET account.round_pattern = true,
+            account.pattern_risk_score = CASE
+                                        WHEN round_tx_ratio = 1.0 AND round_tx_count >= 3 THEN 0.8  // All transactions are round
+                                        WHEN round_tx_ratio >= 0.75 THEN 0.7   // Mostly round
+                                        WHEN round_tx_ratio >= 0.5 THEN 0.6    // Half round
+                                        ELSE 0.5                              // Some round
+                                        END
+        
+        RETURN count(account) as round_pattern_accounts
     """
 
     PATTERN_RISK_SCORE_QUERY = """
@@ -513,86 +596,105 @@ class PatternQueries:
             COALESCE(a.model1_score, 0.0) as model1_score,
             COALESCE(a.model2_score, 0.0) as model2_score,
             COALESCE(a.model3_score, 0.0) as model3_score,
+            COALESCE(a.ensemble_score, 0.0) as ensemble_score,
             COALESCE(a.temporal_risk_score, 0.0) as temporal_score,
             COALESCE(a.velocity_score, 0.0) as velocity_score,
             COALESCE(a.pattern_risk_score, 0.0) as pattern_score,
             COALESCE(a.funnel_pattern, false) as has_funnel_pattern,
             COALESCE(a.chain_pattern, false) as has_chain_pattern,
-            COALESCE(a.round_pattern, false) as has_round_pattern
+            COALESCE(a.round_pattern, false) as has_round_pattern,
+            COALESCE(a.similar_to_fraud, false) as similar_to_fraud,
+            COALESCE(a.similarity_score, 0.0) as similarity_score,
+            COALESCE(a.high_confidence_pattern, false) as high_confidence,
+            COALESCE(a.tx_anomaly, false) as tx_anomaly
         
-        // Simple bound checks
-        WITH a,
-            CASE WHEN model1_score > 1.0 THEN 1.0 ELSE model1_score END AS norm_model1,
-            CASE WHEN model2_score > 1.0 THEN 1.0 ELSE model2_score END AS norm_model2,
-            CASE WHEN model3_score > 1.0 THEN 1.0 ELSE model3_score END AS norm_model3,
-            CASE WHEN temporal_score > 1.0 THEN 1.0 ELSE temporal_score END AS norm_temporal,
-            CASE WHEN velocity_score > 1.0 THEN 1.0 ELSE velocity_score END AS norm_velocity,
-            CASE WHEN pattern_score > 1.0 THEN 1.0 ELSE pattern_score END AS norm_pattern,
-            has_funnel_pattern, has_chain_pattern, has_round_pattern
+        // Base calculation - weight by effectiveness in identifying fraud
+        WITH a, 
+            model1_score, model2_score, model3_score, ensemble_score, 
+            temporal_score, velocity_score, pattern_score,
+            has_funnel_pattern, has_chain_pattern, has_round_pattern, 
+            similar_to_fraud, similarity_score,
+            high_confidence, tx_anomaly,
             
-        // Apply boosting for known patterns (important for fraud detection)
-        WITH a, norm_model1, norm_model2, norm_model3, norm_temporal, norm_velocity, norm_pattern,
+            // Calculate base score with differentiated weights
+            model1_score * 0.55 +         // 55% - Network structure (highest weight)
+            model2_score * 0.15 +         // 15% - Behavioral patterns
+            ensemble_score * 0.15 +       // 15% - Ensemble score
+            temporal_score * 0.05 +       // 5% - Temporal patterns
+            pattern_score * 0.10          // 10% - Pattern risk
+            as base_score
+        
+        // Create truly stratified risk scores for better differentiation
+        WITH a, base_score, model1_score, high_confidence, tx_anomaly, 
             has_funnel_pattern, has_chain_pattern, has_round_pattern,
-            
-            // Boost scores for accounts with funnel patterns (known fraud indicator)
+            similar_to_fraud, similarity_score,
+        
+            // Pattern boost calculation
             CASE
-                WHEN has_funnel_pattern THEN 0.2  // Significant boost for funnel pattern
-                ELSE 0.0
-            END AS funnel_boost,
-            
-            // Boost for chain patterns
-            CASE
+                // High-precision pattern combinations
+                WHEN has_funnel_pattern AND has_chain_pattern THEN 0.30
+                WHEN has_funnel_pattern AND has_round_pattern THEN 0.25
+                WHEN has_chain_pattern AND has_round_pattern THEN 0.20
+                
+                // Individual strong patterns
+                WHEN has_funnel_pattern THEN 0.15
                 WHEN has_chain_pattern THEN 0.15
+                WHEN has_round_pattern THEN 0.10
                 ELSE 0.0
-            END AS chain_boost,
+            END as pattern_boost,
             
-            // Boost for round amount patterns
-            CASE
-                WHEN has_round_pattern THEN 0.1
-                ELSE 0.0
-            END AS round_boost
-            
-        // Calculate base and boosted scores
-        WITH a, norm_model1, norm_model2, norm_model3, norm_temporal, norm_velocity, norm_pattern,
-            funnel_boost, chain_boost, round_boost,
-            
-            // Base score using weighted models
-            (norm_model1 * 0.30 +      // Network structure model (30%)
-            norm_model2 * 0.25 +      // Behavioral patterns model (25%)
-            norm_model3 * 0.25 +      // Complex pattern model (25%)
-            norm_temporal * 0.10 +    // Temporal patterns (10%)
-            norm_velocity * 0.05 +    // Velocity score (5%)
-            norm_pattern * 0.05       // Pattern score (5%)
-            ) AS base_score,
-            
-            // Pattern boosts help identify fraud better
-            funnel_boost + chain_boost + round_boost AS pattern_boost
+            // Similarity boost if similar to known fraud
+            CASE 
+                WHEN similar_to_fraud THEN similarity_score * 0.25
+                ELSE 0
+            END as similarity_boost
         
-        // Calculate final score with pattern boost
-        WITH a, norm_model1, norm_model2, 
-            base_score,
-            pattern_boost,
-            // Adjust minimum threshold for model1/model2 scores
+        // Apply strict stratification rules based on risk signals
+        WITH a, base_score, pattern_boost, similarity_boost,
+            model1_score, high_confidence, tx_anomaly,
+            
+            // Generate a stratified score with better differentiation
             CASE
-                WHEN norm_model1 > 0.6 OR norm_model2 > 0.6 THEN 0.35
-                ELSE 0.0
-            END AS min_score
+                // Very high risk - strict criteria with score >= 0.8
+                WHEN high_confidence AND model1_score > 0.8 THEN 0.85
+                WHEN model1_score > 0.85 THEN 0.82
+                
+                // High risk - criteria for score >= 0.7
+                WHEN high_confidence AND model1_score > 0.7 THEN 0.76
+                WHEN model1_score > 0.75 THEN 0.74
+                WHEN model1_score > 0.7 AND pattern_boost > 0.2 THEN 0.72
+                
+                // Medium-high risk - criteria for score >= 0.6
+                WHEN high_confidence THEN 0.68
+                WHEN model1_score > 0.65 THEN 0.66
+                WHEN model1_score > 0.6 AND pattern_boost > 0.15 THEN 0.64
+                WHEN model1_score > 0.55 AND similarity_boost > 0.15 THEN 0.62
+                
+                // Medium risk - criteria for score >= 0.5
+                WHEN model1_score > 0.6 THEN 0.58
+                WHEN model1_score > 0.55 THEN 0.55
+                WHEN model1_score > 0.5 AND pattern_boost > 0.1 THEN 0.53
+                WHEN pattern_boost > 0.25 THEN 0.52
+                
+                // Use base score for all other accounts
+                ELSE base_score
+            END as stratified_score
         
-        // Combine all factors with bound check
+        // Calculate final score with boosts and bounds
         WITH a, 
             CASE
-                WHEN base_score + pattern_boost > min_score THEN base_score + pattern_boost
-                ELSE min_score
-            END AS adjusted_score
-        
-        // Final bounds check
-        WITH a, 
-            CASE
-                WHEN adjusted_score > 1.0 THEN 1.0
-                ELSE adjusted_score
+                // Apply the stratified score
+                WHEN stratified_score >= 0.5 THEN stratified_score
+                
+                // Or use base score with boosts for lower scores
+                ELSE 
+                    CASE 
+                        WHEN base_score + pattern_boost + similarity_boost > 1.0 THEN 1.0
+                        ELSE base_score + pattern_boost + similarity_boost
+                    END
             END AS final_score
         
-        // Set final fraud score and risk level with ADJUSTED THRESHOLDS
+        // Set final fraud score and risk level
         SET a.fraud_score = final_score,
             a.risk_level = 
                 CASE
@@ -604,6 +706,9 @@ class PatternQueries:
         
         RETURN COUNT(a) as updated_accounts,
             SUM(CASE WHEN final_score >= $fraudThreshold THEN 1 ELSE 0 END) as fraud_accounts,
+            SUM(CASE WHEN final_score >= 0.7 THEN 1 ELSE 0 END) as accounts_above_07,
+            SUM(CASE WHEN final_score >= 0.6 THEN 1 ELSE 0 END) as accounts_above_06,
+            SUM(CASE WHEN final_score >= 0.5 THEN 1 ELSE 0 END) as accounts_above_05,
             AVG(final_score) as avg_score,
             MIN(final_score) as min_score,
             MAX(final_score) as max_score
@@ -667,73 +772,78 @@ class PatternQueries:
             COALESCE(a.burst_pattern, false) AS has_burst,
             COALESCE(a.high_confidence_pattern, false) AS high_confidence
         
-        // Calculate base ensemble score - weight high confidence patterns heavily
-        WITH a, 
-            // If high confidence, use a higher baseline score
-            CASE 
-                WHEN high_confidence THEN 0.6 +
-                    (model1_score * 0.2 + model2_score * 0.2 + model3_score * 0.0)
-                // Otherwise use weighted average with heavier model1 weight
-                ELSE model1_score * 0.55 + model2_score * 0.4 + model3_score * 0.05
-            END AS base_score,
-            
-            // Count pattern indicators
-            (CASE WHEN has_funnel THEN 1 ELSE 0 END +
-            CASE WHEN has_chain THEN 1 ELSE 0 END +
-            CASE WHEN has_round THEN 1 ELSE 0 END +
-            CASE WHEN has_velocity THEN 1 ELSE 0 END +
-            CASE WHEN has_high_value THEN 1 ELSE 0 END +
-            CASE WHEN has_anomaly THEN 1 ELSE 0 END +
-            CASE WHEN has_burst THEN 1 ELSE 0 END) AS pattern_count,
-            
-            // Individual pattern flags
-            has_funnel, has_chain, has_round, has_velocity, has_high_value, has_anomaly, has_burst, high_confidence
-        
-        // Apply pattern-based boosts based on precision analysis
-        WITH a, base_score, pattern_count,
+        // Drastically reduce the base score to ensure better precision
+        WITH a, model1_score, model2_score, model3_score,
             has_funnel, has_chain, has_round, has_velocity, has_high_value, has_anomaly, has_burst, high_confidence,
             
-            // Pattern count boost
+            // MUCH LOWER base score for most accounts
+            CASE 
+                // Only high confidence accounts get a decent baseline
+                WHEN high_confidence THEN 0.45 + (model1_score * 0.15)
+                
+                // Regular scoring - make model1 the dominant factor
+                ELSE model1_score * 0.35 + model2_score * 0.05 + model3_score * 0.05
+            END AS base_score
+        
+        // Apply boosts only for significant indicators or combinations
+        WITH a, base_score, model1_score, high_confidence,
+            has_funnel, has_chain, has_round, has_velocity, has_high_value, has_anomaly, has_burst,
+            
+            // Pattern-specific boosts (adjusted for better selectivity)
             CASE
-                WHEN pattern_count >= 3 THEN 0.35  // 3+ patterns is very suspicious
-                WHEN pattern_count = 2 THEN 0.25   // 2 patterns is suspicious
-                WHEN pattern_count = 1 THEN 0.15   // 1 pattern is somewhat suspicious
+                // Very specific high-risk combinations only
+                WHEN has_funnel AND has_high_value AND has_anomaly THEN 0.35
+                WHEN has_funnel AND has_high_value THEN 0.25
+                WHEN has_funnel AND has_anomaly THEN 0.25
+                WHEN has_chain AND has_round THEN 0.20
+                WHEN has_velocity AND has_burst THEN 0.15
+                
+                // Individual pattern boosts - minimal values 
+                WHEN has_funnel THEN 0.10
+                WHEN has_anomaly AND model1_score > 0.5 THEN 0.10
+                WHEN has_high_value AND model1_score > 0.6 THEN 0.10
                 ELSE 0.0
             END AS pattern_boost,
             
-            // Special combination boosts for known high-precision patterns
+            // Bonus for very high model1 scores (better precision)
             CASE
-                WHEN has_funnel AND has_high_value THEN 0.35  // Very suspicious combination
-                WHEN has_chain AND has_round THEN 0.30         // Suspicious combination
-                WHEN has_velocity AND has_burst THEN 0.25      // Suspicious combination
-                WHEN has_anomaly AND has_high_value THEN 0.35  // Very suspicious combination
+                WHEN model1_score > 0.8 THEN 0.25   // Very high network risk
+                WHEN model1_score > 0.7 THEN 0.20   // High network risk
+                WHEN model1_score > 0.6 THEN 0.10   // Moderate network risk
                 ELSE 0.0
-            END AS combo_boost
+            END AS model1_bonus
         
-        // Calculate final ensemble score with both boosts
-        WITH a, base_score, pattern_boost, combo_boost, high_confidence,
-            // If high confidence, ensure minimum score of 0.6 plus boosts
-            CASE 
-                WHEN high_confidence THEN 
-                    CASE 
-                        WHEN base_score > 0.6 THEN base_score
-                        ELSE 0.6
-                    END + pattern_boost + combo_boost
-                // Otherwise, normal scoring
-                ELSE base_score + pattern_boost + combo_boost
-            END AS boosted_score
+        // Calculate final ensemble score with controlled boosts
+        WITH a, base_score, pattern_boost, model1_bonus, high_confidence, model1_score,
+            base_score + pattern_boost + model1_bonus AS raw_score
         
-        // Apply bounds and set final score
+        // Final score with strict stratification to ensure differentiation between thresholds
         SET a.ensemble_score = 
             CASE
-                WHEN boosted_score > 1.0 THEN 1.0
-                ELSE boosted_score
+                // High confidence accounts with very high model1 should be above 0.7
+                WHEN high_confidence AND model1_score > 0.8 THEN 
+                    CASE WHEN raw_score < 0.8 THEN 0.8 ELSE raw_score END
+                    
+                // High confidence accounts should be at least 0.6
+                WHEN high_confidence THEN 
+                    CASE WHEN raw_score < 0.6 THEN 0.6 ELSE raw_score END
+                    
+                // Very high model1 scores should be at least 0.5
+                WHEN model1_score > 0.7 THEN
+                    CASE WHEN raw_score < 0.5 THEN 0.5 ELSE raw_score END
+                    
+                // Normal accounts - enforce maximum to improve precision
+                WHEN raw_score > 1.0 THEN 1.0
+                ELSE raw_score
             END
         
         RETURN COUNT(a) AS scored_accounts,
-            COUNT(CASE WHEN boosted_score >= $fraudThreshold THEN 1 END) AS fraud_accounts,
-            AVG(CASE WHEN boosted_score > 1.0 THEN 1.0 ELSE boosted_score END) AS avg_score,
-            MAX(CASE WHEN boosted_score > 1.0 THEN 1.0 ELSE boosted_score END) AS max_score
+            SUM(CASE WHEN high_confidence THEN 1 ELSE 0 END) AS high_confidence_accounts,
+            SUM(CASE WHEN a.ensemble_score >= 0.7 THEN 1 ELSE 0 END) AS accounts_above_07,
+            SUM(CASE WHEN a.ensemble_score >= 0.6 THEN 1 ELSE 0 END) AS accounts_above_06,
+            SUM(CASE WHEN a.ensemble_score >= 0.5 THEN 1 ELSE 0 END) AS accounts_above_05,
+            AVG(a.ensemble_score) AS avg_score,
+            MAX(a.ensemble_score) AS max_score
     """
 
     HIGH_CONFIDENCE_PATTERN_QUERY = """
@@ -747,29 +857,200 @@ class PatternQueries:
             COALESCE(a.high_value_tx, false) as high_value_tx,
             COALESCE(a.tx_anomaly, false) as tx_anomaly,
             COALESCE(a.burst_pattern, false) as burst_pattern
-        
-        // Count significant risk factors
+            
+        // First check if model scores are truly significant - this needs to be MUCH more selective
         WITH a, model1_score, model2_score,
-            (CASE WHEN funnel_pattern THEN 1 ELSE 0 END +
-            CASE WHEN chain_pattern THEN 1 ELSE 0 END +
-            CASE WHEN round_pattern THEN 1 ELSE 0 END +
-            CASE WHEN high_value_tx THEN 1 ELSE 0 END +
-            CASE WHEN tx_anomaly THEN 1 ELSE 0 END +
-            CASE WHEN burst_pattern THEN 1 ELSE 0 END) as risk_factor_count
+            funnel_pattern, chain_pattern, round_pattern, high_value_tx, tx_anomaly, burst_pattern,
+            (CASE
+                // ONLY mark high confidence when model1 score is VERY high
+                WHEN model1_score > 0.85 THEN true
+                
+                // OR when model1 is high AND model2 is also high
+                WHEN model1_score > 0.75 AND model2_score > 0.65 THEN true
+                
+                // OR when model1 is high AND funnel pattern exists (key fraud pattern)
+                WHEN model1_score > 0.7 AND funnel_pattern THEN true
+                
+                // OR when very specific pattern combinations exist
+                WHEN funnel_pattern AND high_value_tx AND tx_anomaly THEN true
+                
+                // Otherwise, not high confidence
+                ELSE false
+            END) as high_confidence
         
-        // Set high_confidence_pattern where there are multiple strong indicators
-        WITH a,
-            // Combination of model scores indicates higher confidence
-            (model1_score > 0.7 AND model2_score > 0.5) OR
-            // Multiple risk factors indicate higher confidence
-            (risk_factor_count >= 3 AND (model1_score > 0.5 OR model2_score > 0.5)) OR
-            // Extremely high risk in one model with some risk factors
-            (model1_score > 0.8 AND risk_factor_count >= 1) OR
-            (model2_score > 0.8 AND risk_factor_count >= 1)
-            as high_confidence
-        
-        SET a.high_confidence_pattern = high_confidence
+        // Store high confidence status and pattern factors that led to it
+        SET a.high_confidence_pattern = high_confidence,
+            a.confidence_factors = 
+                CASE WHEN high_confidence THEN 
+                    REDUCE(patterns = [], i IN [
+                        CASE WHEN model1_score > 0.75 THEN 'high_network_risk' ELSE NULL END,
+                        CASE WHEN model2_score > 0.65 THEN 'high_behavior_risk' ELSE NULL END,
+                        CASE WHEN funnel_pattern THEN 'funnel_pattern' ELSE NULL END,
+                        CASE WHEN tx_anomaly THEN 'transaction_anomaly' ELSE NULL END,
+                        CASE WHEN high_value_tx THEN 'high_value_tx' ELSE NULL END,
+                        CASE WHEN round_pattern THEN 'round_amounts' ELSE NULL END
+                    ] | 
+                        CASE WHEN i IS NOT NULL THEN patterns + [i] ELSE patterns END
+                    )
+                ELSE []
+                END
         
         RETURN COUNT(a) as accounts_analyzed,
             SUM(CASE WHEN high_confidence THEN 1 ELSE 0 END) as high_confidence_accounts
+    """
+
+    # Add this query at the end of your pattern_queries.py file
+    PATTERN_STATS_QUERY = """
+        MATCH (a:Account)
+        
+        // Count pattern occurrences
+        WITH COUNT(a) as total,
+            SUM(CASE WHEN a.model1_score > 0.5 THEN 1 ELSE 0 END) as model1_count,
+            SUM(CASE WHEN a.model2_score > 0.5 THEN 1 ELSE 0 END) as model2_count,
+            SUM(CASE WHEN a.model3_score > 0.5 THEN 1 ELSE 0 END) as model3_count,
+            SUM(CASE WHEN a.high_confidence_pattern = true THEN 1 ELSE 0 END) as high_confidence_count,
+            SUM(CASE WHEN a.funnel_pattern = true THEN 1 ELSE 0 END) as funnel_count,
+            SUM(CASE WHEN a.round_pattern = true THEN 1 ELSE 0 END) as round_count,
+            SUM(CASE WHEN a.chain_pattern = true THEN 1 ELSE 0 END) as chain_count,
+            SUM(CASE WHEN a.similar_to_fraud = true THEN 1 ELSE 0 END) as similar_count,
+            SUM(CASE WHEN a.high_velocity = true THEN 1 ELSE 0 END) as high_velocity_count
+            
+        // Calculate related transactions
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.model1_score > 0.5
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            COUNT(DISTINCT tx) as model1_txs
+            
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.model2_score > 0.5
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            model1_txs, COUNT(DISTINCT tx) as model2_txs
+            
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.model3_score > 0.5
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            model1_txs, model2_txs, COUNT(DISTINCT tx) as model3_txs
+            
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.high_confidence_pattern = true
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            model1_txs, model2_txs, model3_txs, COUNT(DISTINCT tx) as high_confidence_txs
+            
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.funnel_pattern = true
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            model1_txs, model2_txs, model3_txs, high_confidence_txs, COUNT(DISTINCT tx) as funnel_txs
+            
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.round_pattern = true  
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            model1_txs, model2_txs, model3_txs, high_confidence_txs, funnel_txs, COUNT(DISTINCT tx) as round_txs
+            
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.chain_pattern = true
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            model1_txs, model2_txs, model3_txs, high_confidence_txs, funnel_txs, round_txs, COUNT(DISTINCT tx) as chain_txs
+            
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.similar_to_fraud = true
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            model1_txs, model2_txs, model3_txs, high_confidence_txs, funnel_txs, round_txs, chain_txs, COUNT(DISTINCT tx) as similar_txs
+            
+        OPTIONAL MATCH (a:Account)-[tx:SENT]->()
+        WHERE a.high_velocity = true
+        WITH total, model1_count, model2_count, model3_count, high_confidence_count,
+            funnel_count, round_count, chain_count, similar_count, high_velocity_count,
+            model1_txs, model2_txs, model3_txs, high_confidence_txs, funnel_txs, round_txs, chain_txs, similar_txs, COUNT(DISTINCT tx) as velocity_txs
+            
+        // Return all statistics as individual fields instead of a nested map
+        RETURN total as total_accounts,
+            model1_count as model1_count,
+            model1_txs as model1_txs,
+            model2_count as model2_count,
+            model2_txs as model2_txs,
+            model3_count as model3_count,
+            model3_txs as model3_txs,
+            high_confidence_count as high_confidence_count,
+            high_confidence_txs as high_confidence_txs,
+            funnel_count as funnel_count,
+            funnel_txs as funnel_txs,
+            round_count as round_count,
+            round_txs as round_txs,
+            chain_count as chain_count,
+            chain_txs as chain_txs,
+            similar_count as similar_count,
+            similar_txs as similar_txs,
+            high_velocity_count as velocity_count,
+            velocity_txs as velocity_txs
+    """
+
+    SIMILAR_TO_FRAUD_QUERY = """
+        // First identify high-confidence fraud accounts
+        MATCH (a:Account)
+        WHERE a.high_confidence_pattern = true AND a.model1_score > 0.7
+        WITH COLLECT(a) as known_fraud_accounts
+        WHERE size(known_fraud_accounts) > 0
+        
+        // Find accounts with similar transaction patterns to known fraud
+        UNWIND known_fraud_accounts as fraud_account
+        
+        // Find accounts with transactions connected to the same entities as fraud accounts
+        MATCH (fraud_account)-[:SENT]->(common_receiver:Account)
+        MATCH (suspect:Account)-[:SENT]->(common_receiver)
+        WHERE suspect <> fraud_account
+        
+        // Calculate similarity score based on common connections and transaction patterns
+        WITH suspect, fraud_account, count(distinct common_receiver) as common_receivers
+        
+        // Get fraud account patterns
+        WITH suspect, fraud_account, common_receivers,
+            fraud_account.model1_score as fraud_model1,
+            fraud_account.model2_score as fraud_model2,
+            COALESCE(fraud_account.funnel_pattern, false) as fraud_funnel,
+            COALESCE(fraud_account.round_pattern, false) as fraud_round,
+            COALESCE(fraud_account.chain_pattern, false) as fraud_chain
+            
+        // Check suspect for similar patterns
+        WITH suspect, fraud_account, common_receivers, fraud_model1, fraud_model2, 
+            fraud_funnel, fraud_round, fraud_chain,
+            COALESCE(suspect.model1_score, 0) as suspect_model1,
+            COALESCE(suspect.model2_score, 0) as suspect_model2,
+            COALESCE(suspect.funnel_pattern, false) as suspect_funnel,
+            COALESCE(suspect.round_pattern, false) as suspect_round,
+            COALESCE(suspect.chain_pattern, false) as suspect_chain
+        
+        // Calculate similarity score
+        WITH suspect, common_receivers,
+            (CASE WHEN suspect_model1 > 0.5 AND fraud_model1 > 0.5 THEN 1 ELSE 0 END +
+            CASE WHEN suspect_model2 > 0.5 AND fraud_model2 > 0.5 THEN 1 ELSE 0 END +
+            CASE WHEN suspect_funnel AND fraud_funnel THEN 1 ELSE 0 END +
+            CASE WHEN suspect_round AND fraud_round THEN 1 ELSE 0 END +
+            CASE WHEN suspect_chain AND fraud_chain THEN 1 ELSE 0 END) as pattern_similarity,
+            
+            // Connection similarity based on common receivers
+            CASE
+                WHEN common_receivers >= 3 THEN 1.0
+                WHEN common_receivers = 2 THEN 0.7
+                WHEN common_receivers = 1 THEN 0.4
+                ELSE 0
+            END as connection_similarity
+        
+        // Calculate overall similarity 
+        WITH suspect, 
+            pattern_similarity * 0.6 + connection_similarity * 0.4 as similarity_score
+        WHERE similarity_score >= 0.6
+        
+        // Mark accounts that are similar to known fraud
+        SET suspect.similar_to_fraud = true,
+            suspect.similarity_score = similarity_score
+        
+        RETURN count(distinct suspect) as similar_accounts
     """

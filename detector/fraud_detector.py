@@ -45,6 +45,8 @@ class FraudDetector:
             # Analyze transaction velocity if possible
             print("  Analyzing transaction velocity patterns...")
             self.pattern_detector.analyze_transaction_velocity(session)
+
+            self.pattern_detector.collect_pattern_stats(session)
             
             # Final score calibration
             print("  Calibrating final risk scores...")

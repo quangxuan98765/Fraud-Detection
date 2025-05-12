@@ -189,24 +189,6 @@ class AccountQueries:
             a.concentration_ratio = 1.0 * totalOut / outNeighbors
     """
     
-    FUNNEL_PATTERN_QUERY = """
-        MATCH (a:Account)
-        WHERE EXISTS((a)-[:SENT]->()) AND EXISTS((a)<-[:SENT]-())
-        
-        MATCH (a)<-[:SENT]-(inNeighbor)
-        WITH a, count(DISTINCT inNeighbor) AS inNeighborCount
-        
-        MATCH (a)-[:SENT]->(outNeighbor)
-        WITH a, inNeighborCount, count(DISTINCT outNeighbor) AS outNeighborCount
-        
-        WHERE inNeighborCount >= 4 AND outNeighborCount <= 2
-        AND inNeighborCount > outNeighborCount * 2
-        
-        SET a.funnel_pattern = true,
-            a.funnel_ratio = 1.0 * inNeighborCount / 
-                             CASE WHEN outNeighborCount = 0 THEN 1 ELSE outNeighborCount END
-    """
-    
     FAN_OUT_PATTERN_QUERY = """
         MATCH (a:Account)
         WHERE EXISTS((a)-[:SENT]->()) AND EXISTS((a)<-[:SENT]-())

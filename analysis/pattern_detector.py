@@ -86,6 +86,21 @@ class PatternDetector:
             high_confidence_result = session.run(self.queries.HIGH_CONFIDENCE_PATTERN_QUERY).single()
             high_confidence_count = high_confidence_result.get("high_confidence_accounts", 0) if high_confidence_result else 0
             print(f"  ✓ Found {high_confidence_count} high-confidence fraud patterns")
+
+            print("  Detecting round amount patterns...")
+            round_result = session.run(self.queries.ROUND_AMOUNT_QUERY).single()
+            round_count = round_result.get("round_pattern_accounts", 0) if round_result else 0
+            print(f"  ✓ Found {round_count} accounts with round amount patterns")
+            
+            print("  Detecting chain transaction patterns...")
+            chain_result = session.run(self.queries.CHAIN_PATTERN_QUERY).single()
+            chain_count = chain_result.get("chain_pattern_accounts", 0) if chain_result else 0
+            print(f"  ✓ Found {chain_count} accounts with chain patterns")
+            
+            print("  Detecting accounts similar to known fraud...")
+            similar_result = session.run(self.queries.SIMILAR_TO_FRAUD_QUERY).single()
+            similar_count = similar_result.get("similar_accounts", 0) if similar_result else 0
+            print(f"  ✓ Found {similar_count} accounts similar to known fraud")
                     
             return True
 
@@ -188,3 +203,39 @@ class PatternDetector:
         except Exception as e:
             print(f"Error calculating ensemble scores: {str(e)}")
             return False
+        
+    # Add this method to the PatternDetector class
+    def collect_pattern_stats(self, session):
+        print("Collecting complete pattern statistics...")
+        
+        result = session.run(self.queries.PATTERN_STATS_QUERY).single()
+        
+        if result:
+            # Create a structure for easier access to statistics
+            stats = {
+                'total': result.get("total_accounts", 0),
+                'model1': {'count': result.get("model1_count", 0), 'txs': result.get("model1_txs", 0)},
+                'model2': {'count': result.get("model2_count", 0), 'txs': result.get("model2_txs", 0)},
+                'model3': {'count': result.get("model3_count", 0), 'txs': result.get("model3_txs", 0)},
+                'high_confidence': {'count': result.get("high_confidence_count", 0), 'txs': result.get("high_confidence_txs", 0)},
+                'funnel': {'count': result.get("funnel_count", 0), 'txs': result.get("funnel_txs", 0)},
+                'round': {'count': result.get("round_count", 0), 'txs': result.get("round_txs", 0)},
+                'chain': {'count': result.get("chain_count", 0), 'txs': result.get("chain_txs", 0)},
+                'similar': {'count': result.get("similar_count", 0), 'txs': result.get("similar_txs", 0)},
+                'velocity': {'count': result.get("velocity_count", 0), 'txs': result.get("velocity_txs", 0)}
+            }
+        else:
+            stats = {}
+        
+        print("\nComplete pattern statistics:")
+        print(f"  Model 1 (Network Structure): {stats.get('model1', {}).get('count', 0)} accounts, {stats.get('model1', {}).get('txs', 0)} transactions")
+        print(f"  Model 2 (Behavioral Patterns): {stats.get('model2', {}).get('count', 0)} accounts, {stats.get('model2', {}).get('txs', 0)} transactions")
+        print(f"  Model 3 (Complex Patterns): {stats.get('model3', {}).get('count', 0)} accounts, {stats.get('model3', {}).get('txs', 0)} transactions")
+        print(f"  High Confidence Patterns: {stats.get('high_confidence', {}).get('count', 0)} accounts, {stats.get('high_confidence', {}).get('txs', 0)} transactions")
+        print(f"  Funnel Patterns: {stats.get('funnel', {}).get('count', 0)} accounts, {stats.get('funnel', {}).get('txs', 0)} transactions")
+        print(f"  Round Amount Patterns: {stats.get('round', {}).get('count', 0)} accounts, {stats.get('round', {}).get('txs', 0)} transactions")
+        print(f"  Chain Patterns: {stats.get('chain', {}).get('count', 0)} accounts, {stats.get('chain', {}).get('txs', 0)} transactions")
+        print(f"  Similar to Fraud: {stats.get('similar', {}).get('count', 0)} accounts, {stats.get('similar', {}).get('txs', 0)} transactions")
+        print(f"  High Velocity: {stats.get('velocity', {}).get('count', 0)} accounts, {stats.get('velocity', {}).get('txs', 0)} transactions")
+        
+        return stats
