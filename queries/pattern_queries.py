@@ -460,14 +460,34 @@ class PatternQueries:
     """
 
     FUNNEL_PATTERN_QUERY = """
-        MATCH (src:Account)-[tx:SENT]->(dst:Account)
-        WITH dst, COUNT(DISTINCT src) as source_count,
-             COLLECT(DISTINCT tx) as transactions
-        WHERE source_count >= $funnelMinSources
-        SET dst.funnel_pattern = true,
-            dst.funnel_sources = source_count,
-            dst.funnel_amount = REDUCE(s = 0, t IN transactions | s + t.amount)
-        RETURN COUNT(DISTINCT dst) as accounts_with_funnels
+        MATCH (src:Account)-[t:TRANSFER]->(a:Account)-[t2:TRANSFER]->(dst:Account)
+        WITH a, count(DISTINCT src) as in_count, count(DISTINCT dst) as out_count,
+            collect(DISTINCT src) as sources, collect(DISTINCT dst) as destinations
+        WHERE in_count >= $funnelMinSources AND out_count <= 2
+
+        // Tính tổng số tiền vào và ra
+        MATCH (src:Account)-[t:TRANSFER]->(a:Account)
+        WHERE src IN sources
+        WITH a, in_count, out_count, sum(t.amount) as total_in
+
+        MATCH (a:Account)-[t:TRANSFER]->(dst:Account)
+        WHERE dst IN destinations
+        WITH a, in_count, out_count, total_in, sum(t.amount) as total_out
+
+        // Mẫu phễu hợp lệ khi giá trị đi ra gần bằng giá trị đi vào
+        WHERE ABS(total_in - total_out) / total_in < 0.2
+
+        SET a.funnel_pattern = true,
+            a.risk_factors = CASE 
+                WHEN a.risk_factors IS NULL THEN "Mẫu phễu (nhận nhiều, chuyển ít)"
+                ELSE a.risk_factors + ", Mẫu phễu (nhận nhiều, chuyển ít)"
+            END,
+            a.model3_score = CASE
+                WHEN a.model3_score IS NULL THEN 0.75
+                ELSE (a.model3_score + 0.75) / 2
+            END
+
+        RETURN count(a) as funnel_accounts
     """
 
     ROUND_AMOUNT_QUERY = """

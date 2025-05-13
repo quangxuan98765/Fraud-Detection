@@ -95,17 +95,20 @@ class ApiQueries:
             unique_accounts
         ORDER BY cycle_length
     """
-    
-    # Metrics queries
+      # Metrics queries
     BASIC_METRICS_QUERY = """
         MATCH (a:Account)
-        OPTIONAL MATCH (a)-[tx:SENT]->()
-        WITH a, tx
-
+        OPTIONAL MATCH (a)-[r1:SENT]->()
+        OPTIONAL MATCH ()-[r2:SENT]->(a)
+        WITH a, r1, r2
+        WITH 
+            a,
+            COLLECT(r1) + COLLECT(r2) AS all_txs
+        
         RETURN count(DISTINCT a) AS total_accounts,
-               count(DISTINCT tx) AS total_transactions,
+               count(DISTINCT all_txs) AS total_transactions,
                count(DISTINCT CASE WHEN a.fraud_score > $fraud_threshold THEN a END) AS detected_fraud_accounts,
-               count(DISTINCT CASE WHEN tx IS NOT NULL AND a.fraud_score > $fraud_threshold THEN tx END) AS detected_fraud_transactions
+               count(DISTINCT CASE WHEN SIZE(all_txs) > 0 AND a.fraud_score > $fraud_threshold THEN all_txs END) AS detected_fraud_transactions
     """
     
     FRAUD_LEVELS_QUERY = """
@@ -132,8 +135,7 @@ class ApiQueries:
              COUNT(m) AS community_size,
              AVG(m.fraud_score) AS avg_score,
              COUNT(CASE WHEN m.fraud_score > $fraud_threshold THEN 1 END) AS high_risk_nodes
-        
-        RETURN count(DISTINCT community) AS count,
+          RETURN count(DISTINCT community) AS count,
                count(CASE WHEN avg_score > 0.5 OR high_risk_nodes > 0 THEN 1 END) AS high_risk_communities
     """
     
@@ -396,4 +398,47 @@ class ApiQueries:
             receiver.community AS target_community
         ORDER BY tx.amount DESC
         LIMIT 100
+    """
+
+    GET_BASIC_STATS = """
+    // Lấy thống kê cơ bản về database - chia thành hai phần riêng biệt
+    MATCH (a:Account) 
+    RETURN count(a) as account_count
+    """
+    GET_TRANSACTION_COUNT = """
+    // Đếm tổng số giao dịch - tách riêng để tránh timeout
+    MATCH ()-[t:SENT]->()
+    RETURN count(t) as transaction_count
+    """
+    
+    # Sửa query lấy ground truth    
+    GET_GROUND_TRUTH = """
+    // Đếm giao dịch gian lận thực sự (nới lỏng điều kiện)
+    MATCH (a:Account)-[t:SENT]->()
+    WHERE a.is_fraud = true OR a.fraud = true OR a.known_fraud = true
+    RETURN count(DISTINCT t) as real_fraud_count
+    """
+      # Sửa query lấy giao dịch theo ngưỡng
+    GET_TRANSACTIONS_BY_THRESHOLD = """
+    // Đếm giao dịch từ hoặc đến các tài khoản vượt ngưỡng
+    MATCH (src:Account)-[t:SENT]->(tgt:Account)
+    RETURN 
+        count(DISTINCT CASE WHEN src.fraud_score >= 0.5 OR tgt.fraud_score >= 0.5 THEN t END) as transactions_05,
+        count(DISTINCT CASE WHEN src.fraud_score >= 0.6 OR tgt.fraud_score >= 0.6 THEN t END) as transactions_06,
+        count(DISTINCT CASE WHEN src.fraud_score >= 0.7 OR tgt.fraud_score >= 0.7 THEN t END) as transactions_07
+    """
+      # Sửa query lấy số liệu từ mô hình
+    GET_MODEL_METRICS = """
+    // Lấy số liệu từ các mô hình - sửa property names
+    MATCH (src:Account)-[t:SENT]->(tgt:Account)
+    RETURN 
+        count(DISTINCT CASE WHEN src.model1_score > 0.5 OR tgt.model1_score > 0.5 THEN t END) as model1_txs,
+        count(DISTINCT CASE WHEN src.model2_score > 0.5 OR tgt.model2_score > 0.5 THEN t END) as model2_txs,
+        count(DISTINCT CASE WHEN src.model3_score > 0.5 OR tgt.model3_score > 0.5 THEN t END) as model3_txs,
+        count(DISTINCT CASE WHEN src.high_confidence_pattern = true OR tgt.high_confidence_pattern = true THEN t END) as high_confidence_txs,
+        count(DISTINCT CASE WHEN src.funnel_pattern = true OR tgt.funnel_pattern = true THEN t END) as funnel_txs,
+        count(DISTINCT CASE WHEN src.round_pattern = true OR tgt.round_pattern = true THEN t END) as round_txs,
+        count(DISTINCT CASE WHEN src.chain_pattern = true OR tgt.chain_pattern = true THEN t END) as chain_txs,
+        count(DISTINCT CASE WHEN src.similar_to_fraud = true OR tgt.similar_to_fraud = true THEN t END) as similar_txs,
+        count(DISTINCT CASE WHEN src.high_velocity = true OR tgt.high_velocity = true THEN t END) as velocity_txs
     """

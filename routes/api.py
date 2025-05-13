@@ -1,7 +1,9 @@
 from flask import jsonify
+import traceback
 from . import api_bp
 from detector.fraud_detector import FraudDetector
-from config import FRAUD_SCORE_THRESHOLD, SUSPICIOUS_THRESHOLD
+from config import FRAUD_SCORE_THRESHOLD, SUSPICIOUS_THRESHOLD, HIGH_RISK_THRESHOLD, VERY_HIGH_RISK_THRESHOLD
+from config import MODEL1_WEIGHT, MODEL2_WEIGHT, MODEL3_WEIGHT
 from queries.api_queries import ApiQueries
 
 detector = FraudDetector()
@@ -239,30 +241,198 @@ def reanalyze():
 @api_bp.route('/debug-metrics')
 def debug_metrics():
     try:
-        with detector.driver.session() as session:            
-            # Truy vấn cập nhật với các thuộc tính mới từ bộ phát hiện tối ưu
-            debug_info = session.run(queries.DEBUG_METRICS_QUERY).single()
+        with detector.driver.session() as session:
+            # Console log cho debugging
+            print("Bắt đầu thu thập debug metrics...")
             
-            # Convert Neo4j Record to a Python dictionary
-            metrics_dict = {}
-            if debug_info:
-                for key in debug_info.keys():
-                    metrics_dict[key] = debug_info[key]
+            # Tạo object chứa kết quả
+            metrics = {}
             
-            # Truy vấn cấu hình hiện tại
-            config_info = {
+            # Kiểm tra loại relationship thực tế trong database
+            rel_types = session.run("""
+                MATCH ()-[r]->() 
+                RETURN type(r) as type, count(r) as count 
+                ORDER BY count DESC
+            """).data()
+            
+            # Log các loại relationship tìm thấy
+            for r in rel_types:
+                print(f"Relationship type: {r['type']} - Count: {r['count']}")
+            
+            # Số liệu tài khoản
+            account_data = session.run("""
+                MATCH (a:Account)
+                RETURN count(a) as total_accounts
+            """).single()
+            
+            if account_data:
+                metrics["account_count"] = account_data["total_accounts"] 
+                print(f"Tìm thấy {metrics['account_count']} tài khoản")
+            else:
+                metrics["account_count"] = 0
+              # Số liệu giao dịch - sử dụng SENT thay vì TRANSFER
+            txn_data = session.run("""
+                MATCH ()-[r:SENT]->()
+                RETURN count(r) as total_transactions
+            """).single()
+            
+            if txn_data:
+                metrics["transaction_count"] = txn_data["total_transactions"]
+                print(f"Tìm thấy {metrics['transaction_count']} giao dịch")
+            else:
+                metrics["transaction_count"] = 0
+            
+            # Số tài khoản theo ngưỡng
+            threshold_accounts = session.run("""
+                MATCH (a:Account)
+                WHERE a.fraud_score IS NOT NULL
+                RETURN 
+                    count(CASE WHEN a.fraud_score >= 0.5 THEN a END) as accounts_05,
+                    count(CASE WHEN a.fraud_score >= 0.6 THEN a END) as accounts_06,
+                    count(CASE WHEN a.fraud_score >= 0.7 THEN a END) as accounts_07
+            """).single()
+            
+            if threshold_accounts:
+                metrics["fraud_accounts_05"] = threshold_accounts["accounts_05"] or 0
+                metrics["fraud_accounts_06"] = threshold_accounts["accounts_06"] or 0
+                metrics["fraud_accounts_07"] = threshold_accounts["accounts_07"] or 0
+                print(f"Tài khoản theo ngưỡng: 0.5={metrics['fraud_accounts_05']}, 0.6={metrics['fraud_accounts_06']}, 0.7={metrics['fraud_accounts_07']}")
+            else:
+                metrics["fraud_accounts_05"] = 0
+                metrics["fraud_accounts_06"] = 0
+                metrics["fraud_accounts_07"] = 0            # Số giao dịch theo ngưỡng - cần tính cả tài khoản nguồn VÀ đích
+            tx_thresholds = session.run("""
+                MATCH (src:Account)-[t:SENT]->(tgt:Account)
+                WHERE src.fraud_score IS NOT NULL OR tgt.fraud_score IS NOT NULL
+                RETURN 
+                    count(CASE WHEN src.fraud_score >= 0.5 OR tgt.fraud_score >= 0.5 THEN t END) as txs_05,
+                    count(CASE WHEN src.fraud_score >= 0.6 OR tgt.fraud_score >= 0.6 THEN t END) as txs_06,
+                    count(CASE WHEN src.fraud_score >= 0.7 OR tgt.fraud_score >= 0.7 THEN t END) as txs_07
+            """).single()
+            
+            if tx_thresholds:
+                metrics["fraud_transactions_05"] = tx_thresholds["txs_05"] or 0
+                metrics["fraud_transactions_06"] = tx_thresholds["txs_06"] or 0
+                metrics["fraud_transactions_07"] = tx_thresholds["txs_07"] or 0
+                print(f"Giao dịch theo ngưỡng: 0.5={metrics['fraud_transactions_05']}, 0.6={metrics['fraud_transactions_06']}, 0.7={metrics['fraud_transactions_07']}")
+            else:
+                metrics["fraud_transactions_05"] = 0
+                metrics["fraud_transactions_06"] = 0
+                metrics["fraud_transactions_07"] = 0
+            
+            # Thu thập số lượng giao dịch thực sự gian lận (is_fraud = 1)
+            real_fraud_data = session.run("""
+                MATCH ()-[r:SENT]->()
+                WHERE r.is_fraud = 1
+                RETURN count(r) as fraud_count
+            """).single()
+            
+            if real_fraud_data:
+                metrics["real_fraud_transactions"] = real_fraud_data["fraud_count"] or 0
+                print(f"Giao dịch thực sự gian lận: {metrics['real_fraud_transactions']}")
+            else:
+                metrics["real_fraud_transactions"] = 0
+            
+            # Thu thập true positives ở các ngưỡng khác nhau
+            true_positives = session.run("""
+                MATCH (src:Account)-[tx:SENT]->(tgt:Account)
+                WHERE tx.is_fraud = 1
+                RETURN 
+                    count(DISTINCT CASE WHEN src.fraud_score >= 0.5 OR tgt.fraud_score >= 0.5 THEN tx END) as tp_05,
+                    count(DISTINCT CASE WHEN src.fraud_score >= 0.6 OR tgt.fraud_score >= 0.6 THEN tx END) as tp_06,
+                    count(DISTINCT CASE WHEN src.fraud_score >= 0.7 OR tgt.fraud_score >= 0.7 THEN tx END) as tp_07
+            """).single()
+            
+            if true_positives:
+                metrics["true_positives_05"] = true_positives["tp_05"] or 0
+                metrics["true_positives_06"] = true_positives["tp_06"] or 0
+                metrics["true_positives_07"] = true_positives["tp_07"] or 0
+                print(f"True positives: 0.5={metrics['true_positives_05']}, 0.6={metrics['true_positives_06']}, 0.7={metrics['true_positives_07']}")
+            else:
+                metrics["true_positives_05"] = 0
+                metrics["true_positives_06"] = 0
+                metrics["true_positives_07"] = 0
+                
+            # Thu thập metrics từ các mô hình - tính cả tài khoản nguồn VÀ đích
+            model_metrics = session.run("""
+                MATCH (src:Account)-[t:SENT]->(tgt:Account)
+                RETURN 
+                    count(CASE WHEN src.model1_score > 0.5 OR tgt.model1_score > 0.5 THEN t END) as model1_txs,
+                    count(CASE WHEN src.model2_score > 0.5 OR tgt.model2_score > 0.5 THEN t END) as model2_txs,
+                    count(CASE WHEN src.model3_score > 0.5 OR tgt.model3_score > 0.5 THEN t END) as model3_txs,
+                    count(CASE WHEN src.high_confidence_pattern = true OR tgt.high_confidence_pattern = true THEN t END) as high_confidence_txs,
+                    count(CASE WHEN src.funnel_pattern = true OR tgt.funnel_pattern = true THEN t END) as funnel_txs,
+                    count(CASE WHEN src.round_pattern = true OR tgt.round_pattern = true THEN t END) as round_txs,
+                    count(CASE WHEN src.chain_pattern = true OR tgt.chain_pattern = true THEN t END) as chain_txs,
+                    count(CASE WHEN src.similar_to_fraud = true OR tgt.similar_to_fraud = true THEN t END) as similar_txs,
+                    count(CASE WHEN src.high_velocity = true OR tgt.high_velocity = true THEN t END) as velocity_txs
+            """).single()
+            
+            if model_metrics:
+                # Đảm bảo không có giá trị null sau khi trả về
+                metrics["model1_transactions"] = model_metrics.get("model1_txs", 0) or 0
+                metrics["model2_transactions"] = model_metrics.get("model2_txs", 0) or 0
+                metrics["model3_transactions"] = model_metrics.get("model3_txs", 0) or 0
+                metrics["high_confidence_transactions"] = model_metrics.get("high_confidence_txs", 0) or 0
+                metrics["funnel_disperse_transactions"] = model_metrics.get("funnel_txs", 0) or 0
+                metrics["round_tx_transactions"] = model_metrics.get("round_txs", 0) or 0
+                metrics["chain_transactions"] = model_metrics.get("chain_txs", 0) or 0
+                metrics["similarity_transactions"] = model_metrics.get("similar_txs", 0) or 0
+                metrics["velocity_transactions"] = model_metrics.get("velocity_txs", 0) or 0
+            else:
+                # Đặt tất cả về 0 nếu không có kết quả
+                metrics["model1_transactions"] = 0
+                metrics["model2_transactions"] = 0
+                metrics["model3_transactions"] = 0
+                metrics["high_confidence_transactions"] = 0
+                metrics["funnel_disperse_transactions"] = 0
+                metrics["round_tx_transactions"] = 0
+                metrics["chain_transactions"] = 0
+                metrics["similarity_transactions"] = 0
+                metrics["velocity_transactions"] = 0
+            
+            # Trả về kết quả cuối cùng
+            return jsonify({
+                "config": {
+                    "FRAUD_SCORE_THRESHOLD": FRAUD_SCORE_THRESHOLD,
+                    "SUSPICIOUS_THRESHOLD": SUSPICIOUS_THRESHOLD
+                },
+                "debug_metrics": metrics
+            })
+            
+    except Exception as e:
+        print(f"Error collecting debug metrics: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            "error": f"Error collecting debug metrics: {str(e)}",
+            "config": {
                 "FRAUD_SCORE_THRESHOLD": FRAUD_SCORE_THRESHOLD,
                 "SUSPICIOUS_THRESHOLD": SUSPICIOUS_THRESHOLD
+            },
+            "debug_metrics": {
+                "account_count": 0,
+                "transaction_count": 0,
+                "real_fraud_transactions": 0,
+                "fraud_accounts_05": 0,
+                "fraud_accounts_06": 0,
+                "fraud_accounts_07": 0,
+                "fraud_transactions_05": 0,
+                "fraud_transactions_06": 0,
+                "fraud_transactions_07": 0,
+                "true_positives_05": 0,
+                "true_positives_06": 0,
+                "true_positives_07": 0,
+                "model1_transactions": 0,
+                "model2_transactions": 0,
+                "model3_transactions": 0,
+                "high_confidence_transactions": 0,
+                "funnel_disperse_transactions": 0,
+                "round_tx_transactions": 0,
+                "chain_transactions": 0,
+                "similarity_transactions": 0,
+                "velocity_transactions": 0
             }
-            
-            return jsonify({
-                "debug_metrics": metrics_dict,
-                "config": config_info
-            })
-    except Exception as e:
-        print(f"Debug metrics API error: {str(e)}")
-        return jsonify({"error": str(e)})
-            
+        }), 500            
 
 @api_bp.route('/community/<community_id>')
 def get_community_details(community_id):

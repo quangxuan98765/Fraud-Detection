@@ -26,6 +26,11 @@ class PatternDetector:
             # Calculate initial scores using improved ensemble
             self.calculate_fraud_scores()
 
+            # Đảm bảo thu thập đầy đủ số liệu 
+            print("Collecting pattern statistics...")
+            pattern_stats = self.collect_pattern_stats(session)
+            print(f"Pattern detection found: {pattern_stats}")
+
             # Apply final calibration with improved thresholds
             self.calculate_final_risk_score(session)
             
@@ -105,37 +110,53 @@ class PatternDetector:
             return True
 
     def detect_specialized_patterns(self, session):
-        """Detect complex transaction patterns indicating potential fraud"""
-        print("Detecting specialized transaction patterns...")
+        """Phát hiện các mẫu giao dịch phức tạp"""
+        print("Phát hiện các mẫu giao dịch chuyên biệt...")
         
-        pattern_queries = [
-            self.queries.CHAIN_PATTERN_QUERY,
-            self.queries.FUNNEL_PATTERN_QUERY,
-            self.queries.ROUND_AMOUNT_QUERY
-        ]
-
-        params = {
-            "chainTimeWindow": CHAIN_TIME_WINDOW,
-            "minChainLength": MIN_CHAIN_LENGTH,
-            "funnelMinSources": FUNNEL_MIN_SOURCES,
-            "roundAmountMin": ROUND_AMOUNT_MIN
-        }
-
-        print("\nAnalyzing specialized patterns:")
-        pattern_types = ["Chain patterns", "Funnel patterns", "Round amounts"]
+        patterns_detected = 0
         
-        for i, query in enumerate(pattern_queries):
-            try:
-                result = session.run(query, params).single()
-                if result:
-                    count = list(result.values())[0]
-                    print(f"  {pattern_types[i]}: {count} accounts")
-            except Exception as e:
-                print(f"Error detecting {pattern_types[i]}: {str(e)}")
-                continue
-
-        # Update risk scores based on detected patterns
+        # Phát hiện mẫu chuỗi
+        try:
+            chain_count = self.detect_chain_patterns(session)
+            patterns_detected += chain_count
+        except Exception as e:
+            print(f"Error detecting chain patterns: {str(e)}")
+        
+        # Phát hiện mẫu phễu
+        try:
+            funnel_count = self.detect_funnel_patterns(session)
+            patterns_detected += funnel_count
+        except Exception as e:
+            print(f"Error detecting funnel patterns: {str(e)}")
+        
+        # Phát hiện giao dịch số tròn
+        try:
+            round_count = self.detect_round_number_transactions(session)
+            patterns_detected += round_count
+        except Exception as e:
+            print(f"Error detecting round number transactions: {str(e)}")
+        
+        # Phát hiện tài khoản tương tự với gian lận đã biết
+        try:
+            similar_count = session.run(self.queries.SIMILAR_TO_FRAUD_QUERY).single()
+            if similar_count:
+                patterns_detected += similar_count["similar_accounts"]
+                print(f"  Tìm thấy {similar_count['similar_accounts']} tài khoản tương tự với gian lận đã biết")
+        except Exception as e:
+            print(f"Error detecting similar accounts: {str(e)}")
+        
+        # Cập nhật điểm rủi ro dựa trên các mẫu phát hiện được
         self._calculate_pattern_risk_scores(session)
+        
+        # Tính điểm cho Model 3 dựa trên các mẫu phức tạp phát hiện được
+        try:
+            model3_result = session.run(self.queries.MODEL3_INTEGRATION_QUERY).single()
+            if model3_result:
+                print(f"  Tính điểm Model 3 cho {model3_result['processed_count']} tài khoản")
+        except Exception as e:
+            print(f"Error calculating Model 3 scores: {str(e)}")
+        
+        print(f"  Tổng cộng phát hiện {patterns_detected} mẫu phức tạp")
         return True
 
     def _calculate_pattern_risk_scores(self, session):
@@ -160,14 +181,19 @@ class PatternDetector:
         return velocity_accounts
 
     def calculate_final_risk_score(self, session):
-        """Calculate final risk scores using ensemble approach"""
-        print("Calculating final risk scores...")
-
+        """Tính toán điểm rủi ro cuối cùng với thuật toán cải tiến"""
+        print("Tính điểm rủi ro cuối cùng với thuật toán tối ưu...")
+        
+        from config import MODEL1_WEIGHT, MODEL2_WEIGHT, MODEL3_WEIGHT
+        
         result = session.run(self.queries.FINAL_RISK_SCORE_QUERY, {
-            "veryHighRisk": VERY_HIGH_RISK_THRESHOLD,
+            "model1Weight": MODEL1_WEIGHT,
+            "model2Weight": MODEL2_WEIGHT,
+            "model3Weight": MODEL3_WEIGHT,
+            "fraudThreshold": FRAUD_SCORE_THRESHOLD,
             "highRisk": HIGH_RISK_THRESHOLD,
-            "suspicious": SUSPICIOUS_THRESHOLD,
-            "fraudThreshold": FRAUD_SCORE_THRESHOLD
+            "veryHighRisk": VERY_HIGH_RISK_THRESHOLD,
+            "suspicious": SUSPICIOUS_THRESHOLD
         }).single()
         
         if result:
@@ -239,3 +265,40 @@ class PatternDetector:
         print(f"  High Velocity: {stats.get('velocity', {}).get('count', 0)} accounts, {stats.get('velocity', {}).get('txs', 0)} transactions")
         
         return stats
+    
+    def detect_funnel_patterns(self, session):
+        """Phát hiện mẫu phễu - nhận từ nhiều nguồn, chuyển đến ít đích"""
+        print("Phát hiện mẫu phễu giao dịch...")
+        
+        result = session.run(self.queries.FUNNEL_PATTERN_QUERY, {
+            "funnelMinSources": FUNNEL_MIN_SOURCES
+        }).single()
+        
+        funnel_count = result["funnel_accounts"] if result else 0
+        print(f"  Tìm thấy {funnel_count} tài khoản có mẫu phễu")
+        return funnel_count
+
+    def detect_round_number_transactions(self, session):
+        """Phát hiện mẫu giao dịch số tròn - dấu hiệu của gian lận có tổ chức"""
+        print("Phát hiện giao dịch số tròn...")
+        
+        result = session.run(self.queries.ROUND_AMOUNT_QUERY, {
+            "roundAmountMin": ROUND_AMOUNT_MIN
+        }).single()
+        
+        round_count = result["round_pattern_accounts"] if result else 0
+        print(f"  Tìm thấy {round_count} tài khoản có mẫu giao dịch số tròn")
+        return round_count
+    
+    def detect_chain_patterns(self, session):
+        """Phát hiện chuỗi giao dịch liên tiếp - dấu hiệu rửa tiền"""
+        print("Phát hiện chuỗi giao dịch...")
+        
+        result = session.run(self.queries.CHAIN_PATTERN_QUERY, {
+            "chainTimeWindow": CHAIN_TIME_WINDOW,
+            "minChainLength": MIN_CHAIN_LENGTH
+        }).single()
+        
+        chain_count = result["chain_pattern_accounts"] if result else 0
+        print(f"  Tìm thấy {chain_count} tài khoản tham gia chuỗi giao dịch")
+        return chain_count

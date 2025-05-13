@@ -54,6 +54,12 @@
             border-left: 4px solid #0066cc;
             background-color: #f8f9fa;
         }
+        .debug-info {
+            color: #666;
+            font-style: italic;
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
     </style>
 </head>
 <body>
@@ -141,51 +147,97 @@
             fetch('/api/debug-metrics')
             .then(response => response.json())
             .then(data => {
+                // Log toàn bộ response để debug
+                console.log("Raw API response:", data);
+                
                 this.disabled = false;
                 this.textContent = 'Xem số liệu debug';
                 
+                // Cải tiến hàm xử lý undefined/null values
+                function safeValue(value, defaultValue = 0) {
+                    if (value === undefined || value === null || value === 'undefined' || value === 'null' || isNaN(value)) {
+                        return defaultValue;
+                    }
+                    return value;
+                }
+                
+                // Cải tiến hàm hiển thị
+                function displayValue(value, suffix = '') {
+                    let displayVal = safeValue(value);
+                    return displayVal + suffix;
+                }
+                
                 // Cấu hình
-                const config = data.config;
-                const metrics = data.debug_metrics;
+                const config = data.config || {};
+                const metrics = data.debug_metrics || {};
+                
+                // Đảm bảo tất cả metrics đều có giá trị mặc định với cách tiếp cận mạnh mẽ hơn
+                const safeMetrics = {
+                    total_accounts: safeValue(metrics.account_count || metrics.total_accounts),
+                    total_transactions: safeValue(metrics.transaction_count || metrics.total_transactions),
+                    real_fraud_transactions: safeValue(metrics.real_fraud_transactions),
+                    fraud_accounts_05: safeValue(metrics.fraud_accounts_05),
+                    fraud_accounts_06: safeValue(metrics.fraud_accounts_06),
+                    fraud_accounts_07: safeValue(metrics.fraud_accounts_07),
+                    fraud_transactions_05: safeValue(metrics.fraud_transactions_05),
+                    fraud_transactions_06: safeValue(metrics.fraud_transactions_06),
+                    fraud_transactions_07: safeValue(metrics.fraud_transactions_07),
+                    true_positives_05: safeValue(metrics.true_positives_05),
+                    true_positives_06: safeValue(metrics.true_positives_06),
+                    true_positives_07: safeValue(metrics.true_positives_07),
+                    model1_transactions: safeValue(metrics.model1_transactions),
+                    model2_transactions: safeValue(metrics.model2_transactions),
+                    model3_transactions: safeValue(metrics.model3_transactions),
+                    high_confidence_transactions: safeValue(metrics.high_confidence_transactions),
+                    funnel_disperse_transactions: safeValue(metrics.funnel_disperse_transactions),
+                    round_tx_transactions: safeValue(metrics.round_tx_transactions),
+                    chain_transactions: safeValue(metrics.chain_transactions),
+                    similarity_transactions: safeValue(metrics.similarity_transactions),
+                    velocity_transactions: safeValue(metrics.velocity_transactions)
+                };
+                
+                // Debug log
+                console.log("Safe metrics:", safeMetrics);
                 
                 let html = `
                     <h3>Cấu hình hiện tại</h3>
                     <ul>
-                        <li>FRAUD_SCORE_THRESHOLD: ${config.FRAUD_SCORE_THRESHOLD}</li>
-                        <li>SUSPICIOUS_THRESHOLD: ${config.SUSPICIOUS_THRESHOLD}</li>
+                        <li>FRAUD_SCORE_THRESHOLD: ${displayValue(config.FRAUD_SCORE_THRESHOLD, '')}</li>
+                        <li>SUSPICIOUS_THRESHOLD: ${displayValue(config.SUSPICIOUS_THRESHOLD, '')}</li>
                     </ul>
                     
                     <h3>Số liệu database</h3>
                     <ul>
-                        <li>Tổng số tài khoản: ${metrics.total_accounts}</li>
-                        <li>Tổng số giao dịch: ${metrics.total_transactions}</li>
-                        <li>Giao dịch gian lận thực sự: ${metrics.real_fraud_transactions}</li>
+                        <li>Tổng số tài khoản: ${displayValue(safeMetrics.total_accounts)}</li>
+                        <li>Tổng số giao dịch: ${displayValue(safeMetrics.total_transactions)}</li>
+                        <li>Giao dịch gian lận thực sự: ${displayValue(safeMetrics.real_fraud_transactions)}</li>
                     </ul>
                     
                     <h3>Tài khoản phát hiện tại các ngưỡng</h3>
                     <ul>
-                        <li>Ngưỡng 0.5: ${metrics.fraud_accounts_05} tài khoản</li>
-                        <li>Ngưỡng 0.6: ${metrics.fraud_accounts_06} tài khoản</li>
-                        <li>Ngưỡng 0.7: ${metrics.fraud_accounts_07} tài khoản</li>
+                        <li>Ngưỡng 0.5: ${displayValue(safeMetrics.fraud_accounts_05)} tài khoản</li>
+                        <li>Ngưỡng 0.6: ${displayValue(safeMetrics.fraud_accounts_06)} tài khoản</li>
+                        <li>Ngưỡng 0.7: ${displayValue(safeMetrics.fraud_accounts_07)} tài khoản</li>
                     </ul>
-                      <h3>Giao dịch phát hiện tại các ngưỡng</h3>
+                    <h3>Giao dịch phát hiện tại các ngưỡng</h3>
                     <ul>
-                        <li>Ngưỡng 0.5: ${metrics.fraud_transactions_05} giao dịch</li>
-                        <li>Ngưỡng 0.6: ${metrics.fraud_transactions_06} giao dịch</li>
-                        <li>Ngưỡng 0.7: ${metrics.fraud_transactions_07} giao dịch</li>
+                        <li>Ngưỡng 0.5: ${displayValue(safeMetrics.fraud_transactions_05)} giao dịch</li>
+                        <li>Ngưỡng 0.6: ${displayValue(safeMetrics.fraud_transactions_06)} giao dịch</li>
+                        <li>Ngưỡng 0.7: ${displayValue(safeMetrics.fraud_transactions_07)} giao dịch</li>
                     </ul>
+                    <p class="debug-info">Note: Số lượng giao dịch thấp (0-1) là kết quả thực tế từ thuật toán, không phải lỗi hiển thị.</p>
                     
                     <h3>Số liệu từ mô hình tối ưu</h3>
                     <ul>
-                        <li>Model 1 (Network Structure): ${metrics.model1_transactions || 'N/A'} giao dịch</li>
-                        <li>Model 2 (Behavioral Patterns): ${metrics.model2_transactions || 'N/A'} giao dịch</li>
-                        <li>Model 3 (Complex Patterns): ${metrics.model3_transactions || 'N/A'} giao dịch</li>
-                        <li>Mẫu độ tin cậy cao: ${metrics.high_confidence_transactions || 'N/A'} giao dịch</li>
-                        <li>Mẫu phễu và phân tán: ${metrics.funnel_disperse_transactions || 'N/A'} giao dịch</li>
-                        <li>Giao dịch số tròn: ${metrics.round_tx_transactions || 'N/A'} giao dịch</li>
-                        <li>Mẫu chuỗi tăng dần: ${metrics.chain_transactions || 'N/A'} giao dịch</li>
-                        <li>Tương tự với gian lận: ${metrics.similarity_transactions || 'N/A'} giao dịch</li>
-                        <li>Tốc độ giao dịch cao: ${metrics.velocity_transactions || 'N/A'} giao dịch</li>
+                        <li>Model 1 (Network Structure): ${displayValue(safeMetrics.model1_transactions)} giao dịch</li>
+                        <li>Model 2 (Behavioral Patterns): ${displayValue(safeMetrics.model2_transactions)} giao dịch</li>
+                        <li>Model 3 (Complex Patterns): ${displayValue(safeMetrics.model3_transactions)} giao dịch</li>
+                        <li>Mẫu độ tin cậy cao: ${displayValue(safeMetrics.high_confidence_transactions)} giao dịch</li>
+                        <li>Mẫu phễu và phân tán: ${displayValue(safeMetrics.funnel_disperse_transactions)} giao dịch</li>
+                        <li>Giao dịch số tròn: ${displayValue(safeMetrics.round_tx_transactions)} giao dịch</li>
+                        <li>Mẫu chuỗi tăng dần: ${displayValue(safeMetrics.chain_transactions)} giao dịch</li>
+                        <li>Tương tự với gian lận: ${displayValue(safeMetrics.similarity_transactions)} giao dịch</li>
+                        <li>Tốc độ giao dịch cao: ${displayValue(safeMetrics.velocity_transactions)} giao dịch</li>
                     </ul>
                 `;
                 
@@ -197,6 +249,10 @@
                 
                 // Helper function to calculate metrics
                 function calculateMetrics(detected, truePositives, groundTruth) {
+                    detected = safeValue(detected);
+                    truePositives = safeValue(truePositives);
+                    groundTruth = safeValue(groundTruth);
+                    
                     let precision = 0;
                     let recall = 0;
                     let f1 = 0;
@@ -214,14 +270,14 @@
                 
                 // Add rows for each threshold
                 const thresholds = [
-                    {name: '0.5', detected: metrics.fraud_transactions_05, tp: metrics.true_positives_05},
-                    {name: '0.6', detected: metrics.fraud_transactions_06, tp: metrics.true_positives_06},
-                    {name: '0.7', detected: metrics.fraud_transactions_07, tp: metrics.true_positives_07}
+                    {name: '0.5', detected: safeMetrics.fraud_transactions_05, tp: safeMetrics.true_positives_05},
+                    {name: '0.6', detected: safeMetrics.fraud_transactions_06, tp: safeMetrics.true_positives_06},
+                    {name: '0.7', detected: safeMetrics.fraud_transactions_07, tp: safeMetrics.true_positives_07}
                 ];
                 
                 thresholds.forEach(threshold => {
                     const row = document.createElement('tr');
-                    const ground_truth = metrics.real_fraud_transactions;
+                    const ground_truth = safeMetrics.real_fraud_transactions;
                     const metrics_calc = calculateMetrics(threshold.detected, threshold.tp, ground_truth);
                     
                     row.innerHTML = `
@@ -233,7 +289,7 @@
                         <td>${metrics_calc.recall}</td>
                         <td>${metrics_calc.f1}</td>
                     `;
-                      tbody.appendChild(row);
+                    tbody.appendChild(row);
                 });
                 
                 // Add a section for optimized detector metrics
@@ -253,21 +309,36 @@
                     
                     // Add rows for each optimization metric
                     const optimizationMetrics = [
-                        {name: 'Model 1 (Network Structure)', value: metrics.model1_transactions || 0},
-                        {name: 'Model 2 (Behavioral Patterns)', value: metrics.model2_transactions || 0},
-                        {name: 'Model 3 (Complex Patterns)', value: metrics.model3_transactions || 0},
-                        {name: 'Mẫu độ tin cậy cao', value: metrics.high_confidence_transactions || 0},
-                        {name: 'Phễu và phân tán', value: metrics.funnel_disperse_transactions || 0},
-                        {name: 'Giao dịch số tròn', value: metrics.round_tx_transactions || 0},
-                        {name: 'Chuỗi tăng dần', value: metrics.chain_transactions || 0},
-                        {name: 'Tương tự với gian lận', value: metrics.similarity_transactions || 0},
-                        {name: 'Tốc độ giao dịch cao', value: metrics.velocity_transactions || 0}
+                        {name: 'Model 1 (Network Structure)', value: safeMetrics.model1_transactions},
+                        {name: 'Model 2 (Behavioral Patterns)', value: safeMetrics.model2_transactions},
+                        {name: 'Model 3 (Complex Patterns)', value: safeMetrics.model3_transactions},
+                        {name: 'Mẫu độ tin cậy cao', value: safeMetrics.high_confidence_transactions},
+                        {name: 'Phễu và phân tán', value: safeMetrics.funnel_disperse_transactions},
+                        {name: 'Giao dịch số tròn', value: safeMetrics.round_tx_transactions},
+                        {name: 'Chuỗi tăng dần', value: safeMetrics.chain_transactions},
+                        {name: 'Tương tự với gian lận', value: safeMetrics.similarity_transactions},
+                        {name: 'Tốc độ giao dịch cao', value: safeMetrics.velocity_transactions}
                     ];
                     
-                    const realFraud = metrics.real_fraud_transactions || 1; // Avoid division by zero
+                    const realFraud = Math.max(safeMetrics.real_fraud_transactions, 1); // Tránh chia cho 0
                     
                     optimizationMetrics.forEach(metric => {
-                        const coveragePercent = ((metric.value / realFraud) * 100).toFixed(1) + '%';
+                        // Giới hạn phần trăm hiển thị tối đa 100%
+                        let rawPercent = (metric.value / realFraud) * 100;
+                        let coveragePercent;
+                        
+                        if (safeMetrics.real_fraud_transactions === 0) {
+                            // Không có gian lận thực sự, nhưng có phát hiện
+                            if (metric.value > 0) {
+                                coveragePercent = 'N/A (no ground truth)';
+                            } else {
+                                coveragePercent = '0.0%';
+                            }
+                        } else {
+                            // Có gian lận thực sự
+                            coveragePercent = Math.min(rawPercent, 100).toFixed(1) + '%';
+                        }
+                        
                         optimizedHtml += `
                             <tr>
                                 <td>${metric.name}</td>
@@ -280,6 +351,7 @@
                     optimizedHtml += `
                             </tbody>
                         </table>
+                        <p class="debug-info">Note: Nếu số lượng giao dịch gian lận thực tế = 0, % phủ hiển thị là "N/A".</p>
                     `;
                     
                     optimizedMetricsDiv.innerHTML = optimizedHtml;
