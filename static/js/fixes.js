@@ -133,36 +133,6 @@ function fetchAndUpdateMetrics() {
         });
 }
 
-// Handle DOM ready events
-document.addEventListener('DOMContentLoaded', function() {
-    console.log("DOM loaded, initializing metrics fixes");
-    
-    // Try to fetch metrics immediately
-    setTimeout(fetchAndUpdateMetrics, 500);
-    
-    // Add a refresh button to manually update metrics
-    const metricsContainer = document.querySelector('.row.mb-4');
-    if (metricsContainer) {
-        const refreshButton = document.createElement('button');
-        refreshButton.className = 'btn btn-sm btn-outline-primary mt-3';
-        refreshButton.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Làm mới dữ liệu';
-        refreshButton.onclick = function() {
-            // Hide any error messages when manually refreshing
-            const errorAlert = document.querySelector('.metrics-error');
-            if (errorAlert) {
-                errorAlert.classList.add('d-none');
-            }
-            fetchAndUpdateMetrics();
-        };
-        
-        const buttonContainer = document.createElement('div');
-        buttonContainer.className = 'col-12 text-center';
-        buttonContainer.appendChild(refreshButton);
-        
-        metricsContainer.insertAdjacentElement('afterend', buttonContainer);
-    }
-});
-
 // Add a retry mechanism to handle race conditions in page loading
 window.addEventListener('load', function() {
     console.log("Window loaded, attempting final metrics update");
