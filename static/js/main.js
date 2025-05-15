@@ -21,7 +21,32 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Tải dữ liệu tài khoản đáng ngờ khi trang đã tải
+    if (document.getElementById('suspicious-accounts')) {
+        loadSuspiciousAccounts();
+    }
 });
+
+// Hàm tải dữ liệu tài khoản đáng ngờ từ API
+function loadSuspiciousAccounts() {
+    fetch('/api/suspicious')
+        .then(response => response.json())
+        .then(data => {
+            renderSuspiciousAccounts(data.accounts || []);
+        })
+        .catch(error => {
+            console.error('Lỗi khi tải dữ liệu tài khoản đáng ngờ:', error);
+            document.getElementById('suspicious-accounts').innerHTML = `
+                <tr>
+                    <td colspan="4" class="text-center py-3 text-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Không thể tải dữ liệu tài khoản đáng ngờ
+                    </td>
+                </tr>
+            `;
+        });
+}
 
 // Hàm hiển thị thông báo
 function showNotification(message, type) {

@@ -13,7 +13,6 @@ class AnomalyDetector:
         self.db_manager = db_manager
         self.weights = weights or FEATURE_WEIGHTS
         self.percentile_cutoff = percentile_cutoff or DEFAULT_PERCENTILE
-    
     def compute_anomaly_scores(self):
         """Tính điểm bất thường (anomaly score) dựa trên weighted sum."""
         print("🔄 Đang tính toán anomaly score...")
@@ -21,14 +20,28 @@ class AnomalyDetector:
         # Tạo weighted sum của tất cả các đặc trưng đã normalize
         self.db_manager.run_query(COMPUTE_ANOMALY_SCORE)
         
-        # Export anomaly score từ graph về DataFrame để xuất ra file csv
         # Chuyển anomaly score từ Account sang Transaction
         self.db_manager.run_query(TRANSFER_SCORE_TO_RELATIONSHIP)
-
-        # Lấy transaction_id, anomaly_score, isFraud từ graph để export
+          # Export anomaly score từ graph về DataFrame để xuất ra file csv
         df = self.db_manager.run_query(EXPORT_ANOMALY_SCORES)
-        self.df = df
+        import pandas as pd
+        if df is None:
+            print("❌ Không có dữ liệu để export.")
+            return
+
+        # Chuyển đổi kết quả sang DataFrame
+        if isinstance(df, dict):
+            # Chỉ có một hàng dữ liệu
+            df = pd.DataFrame([df])
+        elif isinstance(df, list):
+            # Nhiều hàng dữ liệu
+            df = pd.DataFrame(df)
         
+        # Xuất ra file CSV
+        if not df.empty:
+            df.to_csv('anomaly_scores.csv', index=False)
+            print(f"✅ Đã xuất {len(df)} giao dịch có anomaly score ra file anomaly_scores.csv")
+                
         print("✅ Đã tính toán xong anomaly score.")
 
     def flag_anomalies(self, percentile_cutoff=None):

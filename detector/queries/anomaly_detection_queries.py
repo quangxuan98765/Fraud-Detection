@@ -38,7 +38,7 @@ WITH a,
     (amountVolatility * 0.07) +
     (maxAmountRatio * 0.05) +
     (stdTimeBetweenTx * 0.05) +
-    (0.10 * (1 - coalesce(normCommunitySize, 0))) AS score        
+    (0.15 * (1 - coalesce(normCommunitySize, 0))) AS score        
 SET a.anomaly_score = score
 """
 
@@ -65,6 +65,7 @@ SET tx.flagged = false
 """
 
 EXPORT_ANOMALY_SCORES = """
-MATCH (a:Account)-[r:SENT]->(t:Transaction)
-RETURN id(t) AS transaction_id, r.anomaly_score AS anomaly_score, t.isFraud AS isFraud
+MATCH ()-[r:SENT]->()
+WHERE r.anomaly_score IS NOT NULL
+RETURN id(r) AS transaction_id, r.anomaly_score AS anomaly_score, r.isFraud AS isFraud
 """

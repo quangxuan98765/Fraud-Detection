@@ -25,7 +25,8 @@ FEATURE_WEIGHTS = {
     'txVelocity': 0.05,
     'amountVolatility': 0.07,
     'maxAmountRatio': 0.05,
-    'stdTimeBetweenTx': 0.05
+    'stdTimeBetweenTx': 0.05,
+    'normCommunitySize': 0.15  # Increased to match original code
 }
 
 # Detection parameters

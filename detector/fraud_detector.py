@@ -26,11 +26,10 @@ class FraudDetector:
     def __init__(self, db_manager: DatabaseManager):
         """Khởi tạo fraud detector với các thành phần con."""
         self.db_manager = db_manager
-            
-        # Khởi tạo các thành phần con
+              # Khởi tạo các thành phần con
         self.feature_extractor = FeatureExtractor(self.db_manager)
         self.graph_algorithms = GraphAlgorithms(self.db_manager)
-        self.anomaly_detector = AnomalyDetector(self.db_manager)
+        self.anomaly_detector = AnomalyDetector(self.db_manager, percentile_cutoff=DEFAULT_PERCENTILE)
         self.evaluation = EvaluationManager(self.db_manager)
         
         # Config
@@ -216,11 +215,6 @@ class FraudDetector:
         
         # 7. Tính toán anomaly score
         self.anomaly_detector.compute_anomaly_scores()
-        import pandas as pd
-        self.anomaly_detector.df.reset_index().rename(columns={'index': 'transaction_id'})[
-            ['transaction_id', 'anomaly_score', 'isFraud']
-        ].to_csv('anomaly_scores.csv', index=False)
-        print("✅ Exported anomaly_scores.csv")
         
         # 8. Đánh dấu các giao dịch bất thường
         self.anomaly_detector.flag_anomalies(self.percentile_cutoff)
@@ -245,5 +239,100 @@ class FraudDetector:
         print("✅ Hoàn thành pipeline phát hiện bất thường không giám sát")
         print("=" * 50)
         
-        return metrics
+        return metrics  
+      
+    def get_suspicious_accounts(self, threshold=None, min_flagged_tx=1):
+        """
+        Lấy các tài khoản đáng ngờ dựa trên điểm bất thường và số giao dịch bị đánh dấu.
         
+        Args:
+            threshold (float, optional): Ngưỡng anomaly_score để lọc tài khoản. 
+                                        Nếu None, sẽ dùng r.flagged = true.
+            min_flagged_tx (int): Số lượng giao dịch bị đánh dấu tối thiểu.
+            
+        Returns:
+            list: Danh sách các tài khoản đáng ngờ dưới dạng dict.
+        """
+        print(f"🔍 Đang tìm các tài khoản đáng ngờ...")
+        
+        # Tạo Cypher query để lấy các tài khoản đáng ngờ
+        query = """
+        MATCH (a:Account)-[r:SENT]->()
+        WHERE (r.flagged = true OR $threshold IS NOT NULL) AND ($threshold IS NULL OR a.anomaly_score >= $threshold)
+        WITH a, COUNT(r) AS flagged_tx_count, MAX(a.anomaly_score) AS score
+        WHERE flagged_tx_count >= $min_flagged_tx
+        RETURN a.id AS account, flagged_tx_count, score
+        ORDER BY flagged_tx_count DESC, score DESC
+        LIMIT 50
+        """
+        
+        # Thực thi query với tham số
+        params = {
+            "threshold": threshold,
+            "min_flagged_tx": min_flagged_tx
+        }
+        
+        # Lấy kết quả từ database
+        suspicious_accounts = self.db_manager.run_query(query, params)
+        
+        # Kiểm tra nếu là dict đơn (chỉ có 1 kết quả) thì chuyển sang list
+        if isinstance(suspicious_accounts, dict):
+            suspicious_accounts = [suspicious_accounts]
+        elif suspicious_accounts is None:
+            suspicious_accounts = []
+        
+        # Nếu không tìm thấy tài khoản đáng ngờ với phương pháp chính, thử một cách khác
+        if not suspicious_accounts:
+            print("⚠️ Không tìm thấy tài khoản đáng ngờ với phương pháp chính, thử phương pháp thay thế...")
+            
+            # Thử lấy các tài khoản có anomaly_score cao nhất
+            alt_query = """
+            MATCH (a:Account)
+            WHERE a.anomaly_score IS NOT NULL
+            WITH a
+            ORDER BY a.anomaly_score DESC
+            LIMIT 50
+            OPTIONAL MATCH (a)-[r:SENT]->()
+            RETURN 
+                a.id AS account,
+                a.anomaly_score AS score,
+                COUNT(r) AS flagged_tx_count
+            """
+            
+            alt_accounts = self.db_manager.run_query(alt_query)
+            
+            # Kiểm tra kết quả
+            if isinstance(alt_accounts, dict):
+                suspicious_accounts = [alt_accounts]
+            elif isinstance(alt_accounts, list):
+                suspicious_accounts = alt_accounts
+                
+            if suspicious_accounts and len(suspicious_accounts) > 0:
+                print(f"✅ Tìm thấy {len(suspicious_accounts)} tài khoản có anomaly_score cao nhất với phương pháp thay thế")
+            else:
+                print("❌ Vẫn không tìm thấy tài khoản đáng ngờ nào")
+                suspicious_accounts = []
+            
+        # In ra màn hình top 50 tài khoản đáng ngờ
+        if suspicious_accounts:
+            print(f"✅ Tìm thấy {len(suspicious_accounts)} tài khoản đáng ngờ.")
+            print("\n📊 Top tài khoản đáng ngờ:")
+            print(f"{'ID Tài khoản':<20} {'Số giao dịch bị đánh dấu':<25} {'Điểm bất thường':<15}")
+            print("-" * 60)
+            
+            for acc in suspicious_accounts[:10]:  # Chỉ hiển thị top 10 trên màn hình
+                print(f"{acc['account']:<20} {acc['flagged_tx_count']:<25} {acc['score']:.6f}")
+                
+            # Xuất ra file CSV nếu có dữ liệu
+            try:
+                import pandas as pd
+                df = pd.DataFrame(suspicious_accounts)
+                df.to_csv('suspicious_accounts.csv', index=False)
+                print(f"\n✅ Đã xuất {len(suspicious_accounts)} tài khoản đáng ngờ ra file suspicious_accounts.csv")
+            except Exception as e:
+                print(f"❌ Lỗi khi xuất file CSV: {str(e)}")
+        else:
+            print("⚠️ Không tìm thấy tài khoản đáng ngờ thỏa mãn điều kiện.")
+            
+        return suspicious_accounts
+

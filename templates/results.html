@@ -32,6 +32,19 @@
     </div>
 </div>
 
+<div class="col-md-12 mb-3">
+    <div class="alert alert-warning" id="no-results-alert">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <strong>Chưa có kết quả phân tích!</strong> Hãy chạy phân tích gian lận để xem kết quả.
+        <button id="runDetectionBtn" class="btn btn-primary ms-3">
+            <i class="fas fa-play me-1"></i> Chạy phân tích gian lận
+        </button>
+        <div id="detectionProgress" class="progress mt-2 d-none">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%"></div>
+        </div>
+    </div>
+</div>
+
 <!-- Dashboard chính -->
 <div class="alert alert-danger d-none metrics-error" role="alert">
     <i class="fas fa-exclamation-triangle me-2"></i>
@@ -54,7 +67,12 @@
                 <h5 class="card-title text-success">Giao dịch</h5>
                 <p class="display-5 mb-0" id="totalTransactions">...</p>
             </div>
-        </div>    </div>    <div class="col-md-3">        <div class="card metric-card border-danger text-center mb-3" style="cursor: pointer;" onclick="showFraudTransactions()">            <div class="card-body">                <h5 class="card-title text-danger">Giao dịch bị phát hiện</h5>
+        </div>    
+    </div>    
+    <div class="col-md-3">        
+        <div class="card metric-card border-danger text-center mb-3" style="cursor: pointer;" onclick="showFraudTransactions()">            
+            <div class="card-body">                
+                <h5 class="card-title text-danger">Giao dịch bị phát hiện</h5>
                 <p class="display-5 mb-0" id="fraudCount">...</p>
                 <div id="transactionStats" class="small text-muted mt-2">
                     <div>Giao dịch thực sự gian lận: <span id="realFraudCount">...</span></div>
@@ -83,7 +101,8 @@
 <div class="row mb-4">
     <!-- Network Graph -->
     <div class="col-lg-8">
-        <div class="card mb-4">            <div class="card-header bg-primary text-white">
+        <div class="card mb-4">            
+            <div class="card-header bg-primary text-white">
                 <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                     <span><i class="fas fa-network-wired me-2"></i> Biểu Đồ Mạng Lưới Gian Lận</span>
                     <div class="btn-group">
@@ -133,9 +152,9 @@
                     <table class="table table-hover table-striped mb-0">
                         <thead>
                             <tr>
-                                <th>ID</th>
+                                <th>ID Tài khoản</th>
                                 <th>Điểm</th>
-                                <th>Đặc điểm</th>
+                                <th>Giao dịch</th>
                                 <th>Chi tiết</th>
                             </tr>
                         </thead>
@@ -169,7 +188,8 @@
     <div class="col-md-12">
         <div class="card">
             <div class="card-header bg-info text-white">
-                <i class="fas fa-chart-line me-2"></i> Độ chính xác phát hiện gian lận
+                <i class="fas fa-chart-line me-2">
+                </i> Độ chính xác phát hiện gian lận
             </div>
             <div class="card-body">                <div class="row">
                     <div class="col-md-4 text-center">
@@ -201,1045 +221,436 @@
         </div>
     </div>
 </div>
-
-<!-- Fraud Analysis -->
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header bg-info text-white">
-                <i class="fas fa-chart-pie me-2"></i> Thống Kê Chi Tiết
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <div id="fraud-by-type" style="height: 300px;"></div>
-                    </div>                    <div class="col-md-6">
-                        <div class="card mb-3 shadow-sm">
-                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                                <span><i class="fas fa-users-cog me-2"></i> Phân Tích Cộng Đồng Rủi Ro</span>
-                                <button id="showCommunitiesBtn" class="btn btn-sm btn-light">
-                                    <i class="fas fa-search me-1"></i> Xem chi tiết
-                                </button>
-                            </div>
-                            <div class="card-body p-0">
-                                <div class="alert alert-primary mb-0 rounded-0 border-0 py-2">
-                                    <small>
-                                        <b>Phân tích:</b> Hiển thị top 10 cộng đồng rủi ro cao nhất được phát hiện trong hệ thống.
-                                    </small>
-                                </div>
-                                <div id="community-graph" style="height: 300px; position: relative;"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                  <!-- Thêm biểu đồ phân phối kích thước cộng đồng -->
-                <!-- Đã loại bỏ biểu đồ kích thước cộng đồng theo yêu cầu -->
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 <!-- Thêm vào phần extra_js -->
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.2/dist/echarts.min.js"></script>
 <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
-<script>
-// Load data from API
-document.addEventListener('DOMContentLoaded', function() {
-    // Hiển thị loading state cho tất cả các phần tử
-    document.getElementById('totalAccounts').textContent = '...';
-    document.getElementById('totalTransactions').textContent = '...';
-    document.getElementById('fraudCount').textContent = '...';
-    document.getElementById('network-graph').innerHTML = `
-        <div class="d-flex justify-content-center align-items-center h-100">
-            <div class="text-center">
-                <div class="spinner-border text-primary mb-3" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="lead">Đang tải biểu đồ...</p>
-            </div>
-        </div>
-    `;
 
-    // Gọi API theo phương thức bất đồng bộ, xử lý từng API riêng biệt
-    // để tránh lỗi của một API ảnh hưởng đến các API khác
-    
-    // Tải dữ liệu metrics
+<script>
+// Function to fetch metrics and update display
+function fetchAndDisplayMetrics() {
     fetch('/api/metrics')
         .then(response => {
             if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status}`);
+                throw new Error('Network response was not ok');
             }
             return response.json();
         })
         .then(data => {
-            console.log("API metrics:", data);
             if (data.has_data && data.metrics) {
-                updateMetrics(data.metrics);                // Cập nhật độ chính xác
-                updateAccuracy({
-                    precision: data.metrics.precision || 0, 
-                    recall: data.metrics.recall || 0, 
-                    f1_score: data.metrics.f1_score || 0
-                });
+                updateDashboard(data.metrics);
+                updateAccuracyBars(data.metrics);
+                hideError();
+                
+                // Ẩn thông báo "Chưa có kết quả phân tích" nếu có dữ liệu
+                if ((data.metrics.detected_fraud_count > 0 || data.metrics.risk_communities > 0) || 
+                    (data.metrics.precision > 0 && data.metrics.recall > 0)) {
+                    const noResultsAlert = document.getElementById('no-results-alert');
+                    if (noResultsAlert) {
+                        noResultsAlert.classList.add('d-none');
+                    }
+                }
             } else {
-                showNoAnalysisMessage();
+                showError('Không có dữ liệu metrics');
             }
         })
         .catch(error => {
-            console.error('Lỗi khi tải metrics:', error);
-            document.getElementById('totalAccounts').textContent = 'Lỗi';
-            document.getElementById('totalTransactions').textContent = 'Lỗi';
-            document.getElementById('fraudCount').textContent = 'Lỗi';
+            console.error('Error fetching metrics:', error);
+            showError('Không thể kết nối với API');
         });
+}
+
+// Update dashboard metrics
+function updateDashboard(metrics) {
+    // Update account count
+    document.getElementById('totalAccounts').textContent = 
+        (metrics.total_accounts || 0).toLocaleString();
     
-    // Tải dữ liệu suspicious accounts
+    // Update transaction count
+    document.getElementById('totalTransactions').textContent = 
+        (metrics.total_transactions || 0).toLocaleString();
+    
+    // Update detected fraud count
+    document.getElementById('fraudCount').textContent = 
+        (metrics.detected_fraud_count || 0).toLocaleString();
+    
+    // Update transaction stats
+    document.getElementById('realFraudCount').textContent = 
+        (metrics.total_fraud || 0).toLocaleString();
+    document.getElementById('truePosCount').textContent = 
+        (metrics.true_positives || 0).toLocaleString();
+    
+    // Update risk communities count
+    document.getElementById('highRiskCommunityCount').textContent = 
+        (metrics.risk_communities || 0).toLocaleString();
+}
+
+// Update accuracy bars
+function updateAccuracyBars(metrics) {
+    const precision = parseFloat(metrics.precision || 0);
+    const recall = parseFloat(metrics.recall || 0);
+    const f1_score = parseFloat(metrics.f1_score || 0);
+    
+    // Update precision bar
+    const precisionBar = document.getElementById('precision-bar');
+    const precisionPercent = (precision * 100).toFixed(1);
+    precisionBar.style.width = `${precisionPercent}%`;
+    precisionBar.textContent = `${precisionPercent}%`;
+    precisionBar.setAttribute('aria-valuenow', precisionPercent);
+    
+    // Update recall bar
+    const recallBar = document.getElementById('recall-bar');
+    const recallPercent = (recall * 100).toFixed(1);
+    recallBar.style.width = `${recallPercent}%`;
+    recallBar.textContent = `${recallPercent}%`;
+    recallBar.setAttribute('aria-valuenow', recallPercent);
+    
+    // Update F1 bar
+    const f1Bar = document.getElementById('f1-bar');
+    const f1Percent = (f1_score * 100).toFixed(1);
+    f1Bar.style.width = `${f1Percent}%`;
+    f1Bar.textContent = `${f1Percent}%`;
+    f1Bar.setAttribute('aria-valuenow', f1Percent);
+}
+
+// Show error message
+function showError(message) {
+    const errorElement = document.querySelector('.metrics-error');
+    errorElement.querySelector('span').textContent = message;
+    errorElement.classList.remove('d-none');
+}
+
+// Hide error message
+function hideError() {
+    const errorElement = document.querySelector('.metrics-error');
+    errorElement.classList.add('d-none');
+}
+
+// Fetch network data for graph
+function fetchNetworkData() {
+    fetch('/api/network')
+        .then(response => response.json())
+        .then(data => {
+            if (data.nodes && data.nodes.length > 0) {
+                // Initialize network graph with the data
+                // This depends on your graph.js implementation
+                console.log('Network data loaded');
+            } else {
+                document.getElementById('network-graph').innerHTML = 
+                    '<div class="d-flex justify-content-center align-items-center h-100">' +
+                    '<p class="lead text-muted">Không có dữ liệu mạng lưới để hiển thị.</p>' +
+                    '</div>';
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching network data:', error);
+            document.getElementById('network-graph').innerHTML = 
+                '<div class="d-flex justify-content-center align-items-center h-100">' +
+                '<p class="lead text-danger">Lỗi khi tải dữ liệu mạng lưới.</p>' +
+                '</div>';
+        });
+}
+
+// Fetch suspicious accounts
+function fetchSuspiciousAccounts() {
+    console.log('Fetching suspicious accounts...');
+    // Sử dụng API endpoint 
     fetch('/api/suspicious')
         .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status}`);
-            }
+            console.log('Received response:', response.status);
             return response.json();
         })
         .then(data => {
-            console.log("API suspicious:", data);
-            renderSuspiciousAccounts(data.suspicious || []);
+            console.log('Received data:', data);
+            const tbody = document.getElementById('suspicious-accounts');
+            
+            // Kiểm tra nếu có tài khoản đáng ngờ
+            if (data.accounts && data.accounts.length > 0) {
+                let html = '';
+                data.accounts.forEach(account => {
+                    // Tính toán class cho badge dựa trên anomaly score
+                    const scoreClass = account.anomaly_score > 0.8 ? 'danger' : 
+                                     account.anomaly_score > 0.6 ? 'warning' : 'info';
+                                     
+                    html += `<tr>
+                        <td><strong>${account.account_id}</strong></td>
+                        <td><span class="badge bg-${scoreClass}">${(account.anomaly_score * 100).toFixed(1)}%</span></td>
+                        <td>
+                            <span class="badge bg-secondary">${account.flagged_tx_count} giao dịch</span>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" 
+                                onclick="viewAccountDetails('${account.account_id}')">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+                tbody.innerHTML = html;
+            // Kiểm tra nếu có giao dịch đáng ngờ (định dạng cũ)
+            } else if (data.transactions && data.transactions.length > 0) {
+                let html = '';
+                data.transactions.forEach(tx => {
+                    html += `<tr>
+                        <td>${tx.from_id}</td>
+                        <td>${(tx.anomaly_score * 100).toFixed(1)}%</td>
+                        <td class="text-nowrap">
+                            <span class="badge ${tx.type === 'CASH_OUT' ? 'bg-danger' : 'bg-warning'}">${tx.type}</span>
+                            <span class="badge bg-secondary">${tx.amount.toLocaleString()} USD</span>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" 
+                                onclick="viewAccountDetails('${tx.from_id}')">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+                tbody.innerHTML = html;
+            } else {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center">Không tìm thấy tài khoản đáng ngờ</td></tr>';
+            }
         })
         .catch(error => {
-            console.error('Lỗi khi tải tài khoản đáng ngờ:', error);
-            document.getElementById('suspicious-accounts').innerHTML = `
-                <tr><td colspan="4" class="text-center py-3">Lỗi khi tải dữ liệu tài khoản đáng ngờ</td></tr>
-            `;
+            console.error('Error fetching suspicious accounts:', error);
+            document.getElementById('suspicious-accounts').innerHTML = 
+                '<tr><td colspan="4" class="text-center text-danger">Lỗi khi tải dữ liệu tài khoản</td></tr>';
         });
+}
+
+// Function to show fraud transaction details
+function showFraudTransactions() {
+    // Implement this if needed or remove the onclick from your HTML
+    console.log('View fraud transactions clicked');
+}
+
+// Function to view account details 
+function viewAccountDetails(accountId) {
+    console.log('View account details for:', accountId);
     
-    // Tải dữ liệu network
-    fetch('/api/network')
+    // Tạo modal để hiển thị chi tiết
+    const modalHtml = `
+    <div class="modal fade" id="accountDetailsModal" tabindex="-1" aria-labelledby="accountDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="accountDetailsModalLabel">
+                        <i class="fas fa-user-circle me-2"></i> 
+                        Chi tiết tài khoản ${accountId}
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Đang tải dữ liệu tài khoản...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>`;
+    
+    // Thêm modal vào body nếu chưa tồn tại
+    if (!document.getElementById('accountDetailsModal')) {
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    } else {
+        document.getElementById('accountDetailsModal').remove();
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+    
+    // Hiển thị modal
+    const modal = new bootstrap.Modal(document.getElementById('accountDetailsModal'));
+    modal.show();
+      // Lấy thông tin chi tiết tài khoản từ API
+    fetch(`/api/account/${accountId}`)
         .then(response => {
+            console.log('Account details response:', response.status);
             if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status}`);
+                throw new Error('Không thể tải thông tin tài khoản');
             }
             return response.json();
         })
         .then(data => {
-            console.log("API network:", data);
-            if (data.network) {
-                renderNetwork(data.network);
-            } else {
-                document.getElementById('network-graph').innerHTML = `
-                    <div class="d-flex justify-content-center align-items-center h-100">
-                        <div class="text-center">
-                            <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
-                            <p class="lead">Không có dữ liệu mạng lưới để hiển thị.</p>
+            console.log('Account details data:', data);
+            // Cập nhật nội dung modal với thông tin tài khoản
+            const modalBody = document.querySelector('#accountDetailsModal .modal-body');
+            
+            if (!data || !data.account) {
+                modalBody.innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Không tìm thấy thông tin chi tiết cho tài khoản này.
+                    </div>`;
+                return;
+            }
+            
+            modalBody.innerHTML = `
+                <div class="d-flex align-items-center mb-3">
+                    <div class="bg-light p-3 rounded-circle me-3">
+                        <i class="fas fa-user fa-2x text-primary"></i>
+                    </div>
+                    <div>
+                        <h5 class="mb-1">Tài khoản: ${data.account.id || accountId}</h5>
+                        <span class="badge bg-danger">Điểm đáng ngờ: ${((data.account.anomaly_score || 0) * 100).toFixed(1)}%</span>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <h6 class="mb-3"><i class="fas fa-chart-bar me-2"></i> Thống kê</h6>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body p-2 text-center">
+                                <h3 class="text-primary">${data.account.out_transactions || 0}</h3>
+                                <small>Giao dịch đi</small>
+                            </div>
                         </div>
                     </div>
-                `;
-            }
-        })
-        .catch(error => {
-            console.error('Lỗi khi tải dữ liệu mạng lưới:', error);
-            document.getElementById('network-graph').innerHTML = `
-                <div class="d-flex justify-content-center align-items-center h-100">
-                    <div class="text-center">
-                        <i class="fas fa-exclamation-circle fa-3x text-danger mb-3"></i>
-                        <p class="lead">Có lỗi xảy ra khi tải dữ liệu mạng lưới</p>
-                        <button class="btn btn-primary mt-3" onclick="window.location.reload()">Tải lại</button>
-                    </div>
-                </div>
-            `;
-        });
-    
-    // Tải dữ liệu fraud-stats
-    fetch('/api/fraud-stats')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log("API fraud-stats:", data);
-            
-            // Vẽ biểu đồ phân loại gian lận nếu có dữ liệu
-            if (data.fraud_by_type && data.fraud_by_type.length > 0) {
-                renderFraudByTypeChart(data.fraud_by_type);
-            } else {
-                document.getElementById('fraud-by-type').innerHTML = `
-                    <div class="text-center py-5">
-                        <i class="fas fa-chart-pie text-muted fa-3x mb-3"></i>
-                        <p class="mb-1">Không có dữ liệu về loại gian lận</p>
-                        <small class="text-muted">Hệ thống chưa phát hiện được các mẫu gian lận theo loại giao dịch</small>
-                    </div>
-                `;
-            }
-            
-            // Vẽ biểu đồ phân phối cộng đồng nếu có dữ liệu
-            if (data.communities && data.communities.length > 0) {
-                renderCommunityGraph(data.communities);
-                
-                // Thêm tiêu đề giải thích cho biểu đồ cộng đồng
-                document.querySelector(".card:has(#community-graph) .card-header").innerHTML = 
-                    '<i class="fas fa-users-cog me-2"></i> Phân Tích Cộng Đồng Rủi Ro';
-            } else {
-                document.getElementById('community-graph').innerHTML = `
-                    <div class="text-center py-5">
-                        <i class="fas fa-users text-muted fa-3x mb-3"></i>
-                        <p class="mb-1">Không có dữ liệu về cộng đồng</p>
-                        <small class="text-muted">Chưa có cộng đồng tài khoản nào được phát hiện</small>
-                    </div>
-                `;
-            }
-        })
-        .catch(error => {
-            console.error('Lỗi khi tải dữ liệu thống kê:', error);
-            document.getElementById('fraud-by-type').innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-exclamation-circle text-danger fa-3x mb-3"></i>
-                    <p>Lỗi khi tải dữ liệu thống kê</p>
-                    <button class="btn btn-sm btn-outline-primary mt-2" onclick="window.location.reload()">Tải lại</button>
-                </div>
-            `;
-            
-            document.getElementById('community-graph').innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-exclamation-circle text-danger fa-3x mb-3"></i>
-                    <p>Lỗi khi tải dữ liệu thống kê</p>
-                    <button class="btn btn-sm btn-outline-primary mt-2" onclick="window.location.reload()">Tải lại</button>
-                </div>
-            `;
-        });
-      // Cập nhật metrics dashboard và độ chính xác
-    function updateMetrics(metrics) {
-        if (!metrics) {
-            console.error('Không có dữ liệu metrics');
-            showErrorMessage();
-            return;
-        }
-        
-        // Đảm bảo rằng có giá trị hợp lệ trước khi hiển thị
-        const accounts = metrics.accounts || 0;
-        const transactions = metrics.transactions || 0;
-        const detectedTransactions = metrics.detected_fraud_transactions || 0;
-        const fraudAccounts = metrics.fraud || 0;
-        const groundTruth = metrics.ground_truth_frauds || 0;
-        const truePositives = metrics.true_positives || 0;
-        const precision = metrics.precision || 0;
-        const recall = metrics.recall || 0;
-        const f1_score = metrics.f1_score || 0;
-        
-        // Display account and transaction counts
-        document.getElementById('totalAccounts').textContent = accounts.toLocaleString();
-        document.getElementById('totalTransactions').textContent = transactions.toLocaleString();
-        
-        // Display fraud transaction count
-        document.getElementById('fraudCount').textContent = detectedTransactions.toLocaleString();
-        
-        // Display real fraud counts and true positives
-        document.getElementById('realFraudCount').textContent = groundTruth.toLocaleString();
-        document.getElementById('truePosCount').textContent = truePositives.toLocaleString();
-        
-        // Hiển thị số cộng đồng có rủi ro cao
-        document.getElementById('highRiskCommunityCount').textContent = metrics.high_risk_communities || "0";
-        
-        // Sử dụng giá trị chính xác từ API
-        updateProgressBar('precision-bar', precision * 100);
-        updateProgressBar('recall-bar', recall * 100); 
-        updateProgressBar('f1-bar', f1_score * 100);
-    }
-    
-    // Helper function to update progress bars
-    function updateProgressBar(id, value) {
-        const bar = document.getElementById(id);
-        if (!bar) return;
-        
-        // Round to 1 decimal place
-        const roundedValue = Math.round(value * 10) / 10;
-        
-        // Update bar properties
-        bar.style.width = `${roundedValue}%`;
-        bar.setAttribute('aria-valuenow', roundedValue);
-        bar.textContent = `${roundedValue}%`;
-        
-        // Update color based on score
-        let newClass = 'bg-danger';
-        if (roundedValue >= 80) newClass = 'bg-success';
-        else if (roundedValue >= 60) newClass = 'bg-info';
-        else if (roundedValue >= 40) newClass = 'bg-warning';
-        
-        // Remove existing bg classes and add new one
-        bar.classList.remove('bg-success', 'bg-info', 'bg-warning', 'bg-danger');
-        bar.classList.add(newClass);
-        
-        // Add tooltip
-        let tooltipText = '';
-        if (id === 'precision-bar') {
-            tooltipText = `${roundedValue}% các giao dịch phát hiện là gian lận thực sự đúng`;
-        } else if (id === 'recall-bar') {
-            tooltipText = `Phát hiện được ${roundedValue}% tổng số giao dịch gian lận thực sự`;
-        } else if (id === 'f1-bar') {
-            tooltipText = `Điểm F1: ${roundedValue}%`;
-        }
-        
-        bar.setAttribute('data-bs-toggle', 'tooltip');
-        bar.setAttribute('data-bs-title', tooltipText);
-        
-        // Initialize tooltips
-        const tooltip = new bootstrap.Tooltip(bar);
-    }
-    
-    function showNoAnalysisMessage() {
-        document.getElementById('totalAccounts').textContent = '-';
-        document.getElementById('totalTransactions').textContent = '-';
-        document.getElementById('fraudCount').textContent = '-';
-        document.getElementById('highRiskCommunityCount').textContent = '-';
-        
-        document.getElementById('network-graph').innerHTML = `
-            <div class="d-flex justify-content-center align-items-center h-100">
-                <div class="text-center">
-                    <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
-                    <p class="lead">Chưa có kết quả phân tích.<br>Hãy chạy phân tích gian lận trước!</p>
-                    <a href="/" class="btn btn-primary mt-3">Quay lại trang chủ</a>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('suspicious-accounts').innerHTML = `
-            <tr><td colspan="4" class="text-center py-3">Chưa có kết quả phân tích</td></tr>
-        `;
-        
-        document.getElementById('fraud-by-type').innerHTML = `
-            <div class="text-center py-5">
-                <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
-                <p class="lead">Chưa có kết quả phân tích</p>
-                <small>Hãy chạy phân tích gian lận trước</small>
-            </div>
-        `;
-        
-        document.getElementById('community-graph').innerHTML = `
-            <div class="text-center py-5">
-                <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
-                <p class="lead">Chưa có kết quả phân tích</p>
-                <small>Hãy chạy phân tích gian lận trước</small>
-            </div>
-        `;
-        
-        // Set all progress bars to 0
-        document.getElementById('precision-bar').style.width = '0%';
-        document.getElementById('precision-bar').textContent = '0%';
-        document.getElementById('recall-bar').style.width = '0%';
-        document.getElementById('recall-bar').textContent = '0%';
-        document.getElementById('f1-bar').style.width = '0%';
-        document.getElementById('f1-bar').textContent = '0%';
-    }
-    
-    function showErrorMessage() {
-        document.getElementById('network-graph').innerHTML = `
-            <div class="d-flex justify-content-center align-items-center h-100">
-                <div class="text-center">
-                    <i class="fas fa-exclamation-circle fa-3x text-danger mb-3"></i>
-                    <p class="lead">Có lỗi xảy ra khi tải dữ liệu</p>
-                    <button class="btn btn-primary mt-3" onclick="window.location.reload()">Thử lại</button>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('suspicious-accounts').innerHTML = `
-            <tr><td colspan="4" class="text-center py-3">Có lỗi xảy ra khi tải dữ liệu</td></tr>
-        `;
-        
-        document.getElementById('fraud-by-type').innerHTML = `
-            <div class="text-center py-5">
-                <i class="fas fa-exclamation-circle text-danger fa-3x mb-3"></i>
-                <p>Lỗi khi tải dữ liệu thống kê</p>
-                <button class="btn btn-sm btn-outline-primary mt-2" onclick="window.location.reload()">Tải lại</button>
-            </div>
-        `;
-        
-        document.getElementById('community-graph').innerHTML = `
-            <div class="text-center py-5">
-                <i class="fas fa-exclamation-circle text-danger fa-3x mb-3"></i>
-                <p>Lỗi khi tải dữ liệu</p>
-                <button class="btn btn-sm btn-outline-primary mt-2" onclick="window.location.reload()">Tải lại</button>
-            </div>
-        `;
-    }
-      // Render suspicious accounts table
-    function renderSuspiciousAccounts(accounts) {
-        if (!accounts || accounts.length === 0) {
-            document.getElementById('suspicious-accounts').innerHTML = `
-                <tr><td colspan="4" class="text-center py-3">Không tìm thấy tài khoản đáng ngờ</td></tr>
-            `;
-            document.getElementById('suspicious-accounts-pagination').innerHTML = '';
-            return;
-        }
-        
-        // Thiết lập phân trang
-        const accountsPerPage = 5; // Số tài khoản mỗi trang
-        const totalPages = Math.ceil(accounts.length / accountsPerPage);
-        let currentPage = 1;
-        
-        // Hàm hiển thị tài khoản cho trang hiện tại
-        function displayAccountsForPage(page) {
-            const startIndex = (page - 1) * accountsPerPage;
-            const endIndex = Math.min(startIndex + accountsPerPage, accounts.length);
-            const accountsToShow = accounts.slice(startIndex, endIndex);
-            
-            let html = '';            accountsToShow.forEach(account => {                // Xác định đặc điểm của tài khoản dựa trên thuộc tính có sẵn
-                let feature = '';
-                if (account.in_cycle === 1) feature = 'Vòng tròn giao dịch';
-                else if (account.imbalance === 1) feature = 'Mất cân bằng giao dịch';
-                else if (account.pagerank > 1.5) feature = 'Trung tâm mạng lưới';
-                else if (account.base_score > 0.8) feature = 'Điểm cơ sở cao';
-                else if (Math.abs(account.imbalance_amount) > 1000000) feature = 'Chênh lệch lớn';
-                else feature = 'Hoạt động bất thường';
-                
-                // Tạo chi tiết về số lượng giao dịch gửi/nhận
-                const details = `Gửi: ${account.sent_count || 0}, Nhận: ${account.received_count || 0}`;
-                
-                html += `
-                <tr>
-                    <td>${account.id}</td>
-                    <td><span class="badge bg-${getScoreColor(account.score)}">${parseFloat(account.score).toFixed(2)}</span></td>
-                    <td>${feature}</td>
-                    <td><small>${details}</small></td>
-                </tr>
-                `;
-            });
-            
-            document.getElementById('suspicious-accounts').innerHTML = html;
-        }
-        
-        // Hàm tạo các nút phân trang
-        function createPagination() {
-            let paginationHtml = '';
-            
-            // Nút Previous
-            paginationHtml += `
-                <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-                    <a class="page-link" href="#" aria-label="Previous" data-page="${currentPage - 1}">
-                        <span aria-hidden="true">&laquo;</span>
-                    </a>
-                </li>
-            `;
-            
-            // Các nút số trang
-            for (let i = 1; i <= totalPages; i++) {
-                paginationHtml += `
-                    <li class="page-item ${i === currentPage ? 'active' : ''}">
-                        <a class="page-link" href="#" data-page="${i}">${i}</a>
-                    </li>
-                `;
-            }
-            
-            // Nút Next
-            paginationHtml += `
-                <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-                    <a class="page-link" href="#" aria-label="Next" data-page="${currentPage + 1}">
-                        <span aria-hidden="true">&raquo;</span>
-                    </a>
-                </li>
-            `;
-            
-            document.getElementById('suspicious-accounts-pagination').innerHTML = paginationHtml;
-            
-            // Thêm sự kiện click cho các nút phân trang
-            document.querySelectorAll('#suspicious-accounts-pagination .page-link').forEach(link => {
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    const page = parseInt(this.getAttribute('data-page'));
-                    
-                    // Chỉ chuyển trang nếu nút không bị disabled
-                    if (!this.parentElement.classList.contains('disabled')) {
-                        currentPage = page;
-                        displayAccountsForPage(currentPage);
-                        createPagination();
-                    }
-                });
-            });
-        }
-          // Hiển thị trang đầu tiên và tạo phân trang
-        displayAccountsForPage(currentPage);
-        createPagination();
-    }
-    
-    // Lấy màu dựa trên điểm số
-    function getScoreColor(score) {
-        if (score > 0.8) return 'danger';
-        if (score > 0.6) return 'warning';
-        if (score > 0.4) return 'info';
-        return 'secondary';
-    }    // Render Fraud by Type chart
-    function renderFraudByTypeChart(data) {
-        if (!data || data.length === 0) {
-            document.getElementById('fraud-by-type').innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-chart-pie text-muted fa-3x mb-3"></i>
-                    <p class="mb-1">Không có dữ liệu về loại gian lận</p>
-                    <small class="text-muted">Hệ thống chưa phát hiện được các mẫu gian lận theo loại giao dịch</small>
-                </div>
-            `;
-            return;
-        }
-        
-        const chartDom = document.getElementById('fraud-by-type');
-        const myChart = echarts.init(chartDom);
-          const chartData = data.map(item => ({
-            value: item.count,
-            name: item.type || 'Khác',
-            amount: item.total_amount
-        }));        const option = {
-            title: {
-                text: 'Gian lận theo loại giao dịch',
-                left: 'center'
-            },
-            tooltip: {
-                trigger: 'item'
-            },
-            legend: {
-                orient: 'vertical',
-                left: 'left'
-            },
-            series: [
-                {
-                    name: 'Số lượng gian lận',
-                    type: 'pie',
-                    radius: '70%',
-                    data: chartData,
-                    emphasis: {
-                        itemStyle: {
-                            shadowBlur: 10,
-                            shadowOffsetX: 0,
-                            shadowColor: 'rgba(0, 0, 0, 0.5)'
-                        }
-                    }
-                }
-            ]
-        };
-        
-        myChart.setOption(option);
-        
-        // Responsive chart
-        window.addEventListener('resize', function() {
-            myChart.resize();
-        });
-    }    // Hàm vẽ biểu đồ cộng đồng
-    function renderCommunityGraph(data) {
-        if (!data || data.length === 0) {
-            document.getElementById('community-graph').innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-users text-muted fa-3x mb-3"></i>
-                    <p class="mb-1">Không có dữ liệu về cộng đồng</p>
-                    <small class="text-muted">Chưa có cộng đồng tài khoản nào được phát hiện</small>
-                </div>
-            `;
-            return;
-        }
-        
-        const chartDom = document.getElementById('community-graph');
-        const myChart = echarts.init(chartDom);
-        
-        // Sắp xếp và lọc dữ liệu
-        const chartData = data
-            .filter(item => item.count >= 2) // Chỉ hiển thị cộng đồng có ít nhất 2 tài khoản
-            .sort((a, b) => b.risk_ratio - a.risk_ratio) // Sắp xếp theo tỷ lệ rủi ro
-            .slice(0, 10) // Lấy 10 cộng đồng rủi ro nhất
-            .map(item => {
-                const riskPercent = Math.round(item.risk_ratio * 100);
-                return {
-                    value: item.count,
-                    name: `ID: ${item.community} (${item.count} tài khoản)`,
-                    community: item.community,
-                    avg_score: item.avg_score,
-                    high_risk: item.high_risk_count,
-                    risk_ratio: riskPercent,
-                    itemStyle: {
-                        color: getColorByRiskScore(item.avg_score)
-                    }
-                };
-            });
-            
-        const option = {
-            tooltip: {
-                trigger: 'item',
-                formatter: function(params) {
-                    return `<div style="font-weight:bold;border-bottom:1px solid #ddd;margin-bottom:5px;padding-bottom:5px">
-                                Cộng đồng #${params.data.community}
+                    <div class="col-6 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body p-2 text-center">
+                                <h3 class="text-primary">${data.account.in_transactions || 0}</h3>
+                                <small>Giao dịch đến</small>
                             </div>
-                            <div>Số tài khoản: <b>${params.data.value}</b></div>
-                            <div>Điểm gian lận TB: <b>${params.data.avg_score.toFixed(2)}</b></div>
-                            <div>Tài khoản rủi ro cao: <b>${params.data.high_risk}</b></div>
-                            <div>Tỷ lệ rủi ro: <b>${params.data.risk_ratio}%</b></div>
-                            <div style="margin-top:5px;font-style:italic;color:#999">Nhấn để xem chi tiết</div>`;
-                }
-            },
-            series: [
-                {
-                    name: 'Cộng đồng rủi ro',
-                    type: 'pie',
-                    radius: ['30%', '70%'],
-                    avoidLabelOverlap: true,
-                    itemStyle: {
-                        borderColor: '#fff',
-                        borderWidth: 2
-                    },
-                    label: {
-                        show: false
-                    },
-                    emphasis: {
-                        label: {
-                            show: true,
-                            formatter: '{b}',
-                            fontSize: 12
-                        },
-                        itemStyle: {
-                            shadowBlur: 10,
-                            shadowOffsetX: 0,
-                            shadowColor: 'rgba(0, 0, 0, 0.5)'
-                        }
-                    },
-                    labelLine: {
-                        show: false
-                    },
-                    data: chartData
-                }
-            ]
-        };
-        
-        myChart.setOption(option);
-        
-        // Thêm sự kiện click cho biểu đồ để hiển thị thông tin chi tiết của cộng đồng
-        myChart.on('click', function(params) {
-            if (params.data && params.data.community) {
-                showCommunityDetails(params.data.community);
-            }
-        });
-        
-        // Responsive chart
-        window.addEventListener('resize', function() {
-            myChart.resize();
-        });
-        
-        // Helper function để lấy màu dựa trên điểm rủi ro
-        function getColorByRiskScore(score) {
-            if (score > 0.7) return '#dc3545'; // Đỏ - Rủi ro cao
-            if (score > 0.5) return '#fd7e14'; // Cam - Rủi ro trung bình
-            if (score > 0.3) return '#ffc107'; // Vàng - Rủi ro thấp
-            return '#20c997'; // Xanh lá - Bình thường
-        }
-        
-        // Hàm mở modal chi tiết cộng đồng
-        function showCommunityDetails(communityId) {
-            // Gọi hàm trong community_viewer.js
-            if (typeof window.showCommunityDetails === 'function') {
-                window.showCommunityDetails(communityId);
-            } else {
-                // Nếu chưa tải được hàm, mở modal danh sách cộng đồng
-                if (document.getElementById('showCommunitiesBtn')) {
-                    document.getElementById('showCommunitiesBtn').click();
-                }
-            }
-        }
-    }
-      // Hàm vẽ biểu đồ phân phối kích thước cộng đồng mới
-    // Đã loại bỏ hàm renderCommunityDistribution theo yêu cầu    // Network visualization function - ADD THIS
-    function renderNetwork(network) {
-        console.log("Rendering network with:", network);
-        
-        // Check if we have data
-        if (!network.nodes || network.nodes.length === 0) {
-            document.getElementById('network-graph').innerHTML = `
-                <div class="d-flex justify-content-center align-items-center h-100">
-                    <div class="text-center">
-                        <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
-                        <p class="lead">Không có dữ liệu mạng lưới để hiển thị.</p>
+                        </div>
                     </div>
                 </div>
             `;
-            return;
-        }
-        
-        // Clear the container
-        document.getElementById('network-graph').innerHTML = '';
-        
-        // Create SVG
-        const width = document.getElementById('network-graph').clientWidth;
-        const height = 530;
-        
-        // Create tooltip div
-        const tooltip = d3.select('#network-graph')
-            .append('div')
-            .attr('class', 'node-tooltip');
-            
-        // Create legend
-        const legend = d3.select('#network-graph')
-            .append('div')
-            .attr('class', 'network-legend')
-            .html(`
-                <div style="font-weight: bold; margin-bottom: 8px;">Chú thích:</div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #ff4136;"></div>
-                    <div>Tài khoản rủi ro cao</div>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #ff851b;"></div>
-                    <div>Tài khoản đáng ngờ</div>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #0074d9;"></div>
-                    <div>Tài khoản bình thường</div>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: transparent; border: 2px dashed #ff4136;"></div>
-                    <div>Giao dịch gian lận</div>
-                </div>
-                <div style="font-size: 10px; color: #666; margin-top: 5px;">
-                    Kích thước nút tương ứng với điểm rủi ro
-                </div>
-            `);
-            
-        const svg = d3.select('#network-graph')
-            .append('svg')
-            .attr('width', width)
-            .attr('height', height);
-            
-        // Add background glow filter for highlighted nodes
-        const defs = svg.append('defs');
-        const filter = defs.append('filter')
-            .attr('id', 'glow');
-            
-        filter.append('feGaussianBlur')
-            .attr('stdDeviation', '3.5')
-            .attr('result', 'coloredBlur');
-            
-        const feMerge = filter.append('feMerge');
-        feMerge.append('feMergeNode')
-            .attr('in', 'coloredBlur');
-        feMerge.append('feMergeNode')
-            .attr('in', 'SourceGraphic');
-        
-        // Add zoom capability
-        const g = svg.append('g');
-        const zoom = d3.zoom()
-            .scaleExtent([0.1, 5])
-            .on('zoom', (event) => {
-                g.attr('transform', event.transform);
-                // Hide tooltip on zoom
-                tooltip.style('display', 'none');
-            });
-        
-        svg.call(zoom);
-        
-        // Apply initial zoom to fit the network better
-        svg.call(zoom.transform, d3.zoomIdentity.scale(0.8).translate(width / 5, height / 5));
-        
-        // Create simulation with improved physics
-        const simulation = d3.forceSimulation(network.nodes)
-            .force('link', d3.forceLink(network.links).id(d => d.id).distance(d => {
-                // Make fraud links shorter to cluster fraud nodes
-                return d.is_fraud ? 80 : 120;
-            }))
-            .force('charge', d3.forceManyBody().strength(d => {
-                // Higher repulsion for fraud nodes
-                return d.score > 0.7 ? -500 : -300;
-            }))
-            .force('center', d3.forceCenter(width / 2, height / 2))
-            .force('x', d3.forceX(width / 2).strength(0.05))
-            .force('y', d3.forceY(height / 2).strength(0.05))
-            .force('collision', d3.forceCollide().radius(d => 10 + (d.score || 0) * 10).strength(0.7));
-        
-        // Add highlighted links with glow for fraud transactions
-        const linkHighlight = g.append('g')
-            .attr('class', 'link-highlights')
-            .selectAll('line')
-            .data(network.links.filter(d => d.is_fraud))
-            .enter().append('line')
-            .attr('stroke', '#ff4136')
-            .attr('stroke-width', d => Math.sqrt(d.value || 1) * 1.5)
-            .attr('opacity', 0.2)
-            .attr('stroke-linecap', 'round');
-        
-        // Add links
-        const link = g.append('g')
-            .selectAll('line')
-            .data(network.links)
-            .enter().append('line')
-            .attr('class', d => 'link ' + (d.is_fraud ? 'fraud' : 'normal'))
-            .attr('stroke-width', d => {
-                // Scale link width based on value but keep it reasonable
-                const baseWidth = Math.sqrt(d.value || 1) / 15;
-                return Math.max(0.5, Math.min(baseWidth, 3));
-            });
-            
-        // Add node halos for high fraud score nodes
-        const nodeHalo = g.append('g')
-            .selectAll('circle')
-            .data(network.nodes.filter(d => d.score > 0.7))
-            .enter().append('circle')
-            .attr('r', d => (5 + (d.score || 0) * 5) * 1.5)
-            .attr('fill', '#ff4136')
-            .attr('opacity', 0.2)
-            .attr('filter', 'url(#glow)');
-            
-        // Add nodes
-        const node = g.append('g')
-            .selectAll('circle')
-            .data(network.nodes)
-            .enter().append('circle')
-            .attr('class', 'node')
-            .attr('r', d => 5 + (d.score || 0) * 5)
-            .attr('fill', d => {
-                const score = d.score || 0;
-                if (score > 0.7) return '#ff4136'; // Red - Rủi ro cao
-                if (score > 0.5) return '#ff851b'; // Orange - Rủi ro trung bình
-                return '#0074d9'; // Blue - Bình thường
-            })
-            .style('filter', d => d.score > 0.8 ? 'url(#glow)' : null)
-            .call(d3.drag()
-                .on('start', dragstarted)
-                .on('drag', dragged)
-                .on('end', dragended));
-                
-        // Add labels for high risk nodes
-        const labels = g.append('g')
-            .selectAll('text')
-            .data(network.nodes.filter(d => d.score > 0.8))
-            .enter()
-            .append('text')
-            .text(d => d.id)
-            .attr('font-size', 9)
-            .attr('fill', '#fff')
-            .attr('text-anchor', 'middle')
-            .attr('dy', d => -(8 + (d.score || 0) * 4))
-            .attr('pointer-events', 'none')
-            .attr('text-shadow', '0 1px 2px rgba(0,0,0,0.9)')
-            .style('user-select', 'none');
-        
-        // Better tooltips with hover effects
-        node.on('mouseover', function(event, d) {
-                // Highlight connected nodes and links
-                const connectedNodes = new Set();
-                const nodeId = d.id;
-                
-                // Find all connected nodes
-                network.links.forEach(link => {
-                    if (link.source.id === nodeId || link.target.id === nodeId) {
-                        connectedNodes.add(typeof link.source === 'object' ? link.source.id : link.source);
-                        connectedNodes.add(typeof link.target === 'object' ? link.target.id : link.target);
-                    }
-                });
-                
-                // Dim unconnected nodes
-                node.style('opacity', n => connectedNodes.has(n.id) ? 1 : 0.3);
-                nodeHalo.style('opacity', n => connectedNodes.has(n.id) ? 0.3 : 0.1);
-                
-                // Highlight connected links
-                link.style('opacity', l => 
-                    (l.source.id === nodeId || l.target.id === nodeId) ? 1 : 0.1)
-                    .style('stroke-width', l => 
-                        (l.source.id === nodeId || l.target.id === nodeId) 
-                        ? (l.is_fraud ? 2 : 1.5) : (Math.sqrt(l.value || 1) / 15));
-                
-                // Show tooltip with more details
-                tooltip
-                    .style('display', 'block')
-                    .style('left', (event.pageX - document.getElementById('network-graph').getBoundingClientRect().left + 10) + 'px')
-                    .style('top', (event.pageY - document.getElementById('network-graph').getBoundingClientRect().top - 30) + 'px')
-                    .html(`<div style="font-weight:bold;border-bottom:1px solid #aaa;margin-bottom:4px">
-                             Tài khoản: ${d.id}
-                           </div>
-                           <div>Điểm gian lận: <span style="font-weight:bold;color:${d.score > 0.7 ? '#ff4136' : d.score > 0.5 ? '#ff851b' : '#0074d9'}">
-                             ${(d.score || 0).toFixed(2)}
-                           </span></div>
-                           <div>Phân loại: <span style="font-weight:bold">
-                             ${d.score > 0.7 ? 'RỦI RO CAO' : d.score > 0.5 ? 'ĐÁNG NGỜ' : 'BÌNH THƯỜNG'}
-                           </span></div>
-                           <div style="font-style:italic;margin-top:4px;font-size:10px">
-                             ${connectedNodes.size - 1} kết nối
-                           </div>`);
-            })
-            .on('mouseout', function() {
-                // Restore all nodes and links
-                node.style('opacity', 1);
-                nodeHalo.style('opacity', 0.2);
-                link.style('opacity', 0.6)
-                    .style('stroke-width', d => {
-                        const baseWidth = Math.sqrt(d.value || 1) / 15;
-                        return Math.max(0.5, Math.min(baseWidth, 3));
-                    });
-                
-                // Hide tooltip
-                tooltip.style('display', 'none');
-            });
-
-        // Update positions
-        simulation.on('tick', () => {
-            link
-                .attr('x1', d => d.source.x)
-                .attr('y1', d => d.source.y)
-                .attr('x2', d => d.target.x)
-                .attr('y2', d => d.target.y);
-                
-            linkHighlight
-                .attr('x1', d => d.source.x)
-                .attr('y1', d => d.source.y)
-                .attr('x2', d => d.target.x)
-                .attr('y2', d => d.target.y);
-            
-            node
-                .attr('cx', d => d.x)
-                .attr('cy', d => d.y);
-                
-            nodeHalo
-                .attr('cx', d => d.x)
-                .attr('cy', d => d.y);
-                
-            labels
-                .attr('x', d => d.x)
-                .attr('y', d => d.y);
+        })
+        .catch(error => {
+            console.error('Error fetching account details:', error);
+            const modalBody = document.querySelector('#accountDetailsModal .modal-body');
+            modalBody.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    Lỗi khi tải thông tin tài khoản: ${error.message}
+                </div>`;
         });
-        
-        // Connect zoom controls
-        document.getElementById('zoomIn').addEventListener('click', function() {
-            svg.transition().duration(500).call(zoom.scaleBy, 1.5);
-        });
-        
-        document.getElementById('zoomOut').addEventListener('click', function() {
-            svg.transition().duration(500).call(zoom.scaleBy, 0.7);
-        });
-        
-        document.getElementById('resetZoom').addEventListener('click', function() {
-            svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.scale(0.8).translate(width / 5, height / 5));
-        });
-        
-        // Drag functions
-        function dragstarted(event, d) {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
-        }
-        
-        function dragged(event, d) {
-            d.fx = event.x;
-            d.fy = event.y;
-        }
-        
-        function dragended(event, d) {
-            if (!event.active) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-        }
-    }    // Update accuracy metrics
-    function updateAccuracy(accuracy) {
-        if (!accuracy) {
-            console.error('Không có dữ liệu độ chính xác');
-            return;
-        }        // Hiển thị giá trị độ chính xác dựa trên dữ liệu thực từ API
-        const precision = accuracy.precision || 0;
-        const recall = accuracy.recall || 0;
-        const f1 = accuracy.f1_score || 0;
-        
-        // Format giá trị để hiển thị
-        const precisionPercent = (precision * 100).toFixed(1);
-        const recallPercent = (recall * 100).toFixed(1);
-        const f1Percent = (f1 * 100).toFixed(1);
+}
 
-        // Cập nhật thanh tiến trình
-        document.getElementById('precision-bar').style.width = `${precisionPercent}%`;
-        document.getElementById('precision-bar').setAttribute('aria-valuenow', precisionPercent);
-        document.getElementById('precision-bar').textContent = `${precisionPercent}%`;
-
-        document.getElementById('recall-bar').style.width = `${recallPercent}%`;
-        document.getElementById('recall-bar').setAttribute('aria-valuenow', recallPercent);
-        document.getElementById('recall-bar').textContent = `${recallPercent}%`;
-
-        document.getElementById('f1-bar').style.width = `${f1Percent}%`;
-        document.getElementById('f1-bar').setAttribute('aria-valuenow', f1Percent);
-        document.getElementById('f1-bar').textContent = `${f1Percent}%`;
-        
-        // Cập nhật màu sắc dựa trên điểm số
-        updateBarColor('precision-bar', parseFloat(precisionPercent));
-        updateBarColor('recall-bar', parseFloat(recallPercent));
-        updateBarColor('f1-bar', parseFloat(f1Percent));
-    }
+// Function to run fraud detection
+function runFraudDetection() {
+    const progressBar = document.getElementById('detectionProgress');
+    const runButton = document.getElementById('runDetectionBtn');
     
-    // Helper function to update bar color based on value
-    function updateBarColor(id, value) {
-        const bar = document.getElementById(id);
-        if (!bar) return;
+    // Show progress
+    progressBar.classList.remove('d-none');
+    runButton.disabled = true;
+    runButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Đang phân tích...';
+    
+    // Call the API to run detection
+    fetch('/api/run-detection', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())    .then(data => {
+        if (data.success) {
+            // Hide the alert
+            const noResultsAlert = document.getElementById('no-results-alert');
+            if (noResultsAlert) {
+                noResultsAlert.classList.add('d-none');
+            }
+            
+            // Refresh metrics
+            fetchAndDisplayMetrics();
+            fetchNetworkData();
+            fetchSuspiciousAccounts();
+            
+            // Show success message
+            const successAlert = document.createElement('div');
+            successAlert.className = 'alert alert-success alert-dismissible fade show';
+            successAlert.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>Thành công!</strong> Phân tích gian lận đã hoàn tất.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            document.querySelector('.row.mb-3').appendChild(successAlert);
+            
+            // Hide after 5 seconds
+            setTimeout(() => {
+                successAlert.classList.remove('show');
+                setTimeout(() => successAlert.remove(), 500);
+            }, 5000);
+        } else {
+            // Show error
+            const errorMsg = data.error || 'Lỗi không xác định';
+            alert(`Lỗi khi chạy phân tích: ${errorMsg}`);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Lỗi khi gọi API: ' + error.message);
+    })
+    .finally(() => {
+        // Hide progress
+        progressBar.classList.add('d-none');
+        runButton.disabled = false;
+        runButton.innerHTML = '<i class="fas fa-play me-1"></i> Chạy phân tích gian lận';
+    });
+}
+
+// Initialize everything when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if there are already results and hide the alert if needed
+    fetch('/api/metrics')
+        .then(response => response.json())
+        .then(data => {
+            if (data.has_data && data.metrics) {
+                // Hide the alert if there are fraud results or evaluation metrics
+                if ((data.metrics.detected_fraud_count > 0 || data.metrics.risk_communities > 0) || 
+                    (data.metrics.precision > 0 && data.metrics.recall > 0)) {
+                    const noResultsAlert = document.getElementById('no-results-alert');
+                    if (noResultsAlert) {
+                        noResultsAlert.classList.add('d-none');
+                    }
+                }
+            }
+        })
+        .catch(error => console.error('Error checking metrics:', error));
         
-        // Remove existing bg classes
-        bar.classList.remove('bg-success', 'bg-info', 'bg-warning', 'bg-danger');
-        
-        // Add appropriate class based on value
-        if (value >= 80) bar.classList.add('bg-success');
-        else if (value >= 60) bar.classList.add('bg-info');
-        else if (value >= 40) bar.classList.add('bg-warning');
-        else bar.classList.add('bg-danger');
-    }
-      // Function to ensure the latest metrics are displayed
-    function ensureLatestMetrics() {
-        // Fetch latest metrics from API
-        fetch('/api/metrics')
+    // Add run detection button event
+    document.getElementById('runDetectionBtn').addEventListener('click', runFraudDetection);
+    
+    // Add debug button
+    const debugBtn = document.createElement('button');
+    debugBtn.className = 'btn btn-sm btn-secondary position-fixed bottom-0 end-0 m-3';
+    debugBtn.textContent = 'Debug Data';
+    debugBtn.addEventListener('click', function() {
+        fetch('/api/debug')
             .then(response => response.json())
             .then(data => {
-                if (data.metrics) {
-                    // Use real metrics from API
-                    const metrics = {
-                        precision: data.metrics.precision || 0,
-                        recall: data.metrics.recall || 0,
-                        f1_score: data.metrics.f1_score || 0
-                    };
-                    
-                    // Update display with the retrieved values
-                    updateAccuracy(metrics);
-                }
+                console.log('Debug data:', data);
+                alert('Debug data logged to console. Press F12 to view details.');
             })
             .catch(error => {
-                console.error('Error fetching metrics:', error);
+                console.error('Debug error:', error);
             });
-          
-        // Update all display locations
-        try {
-            // Progress bars are updated by updateAccuracy function
-            
-            // Update metrics in the fraud count card if available
-            const fraudCountCard = document.getElementById('fraudCount');
-            if (fraudCountCard && fraudCountCard.innerHTML.includes('Chính xác')) {
-                const metricDiv = fraudCountCard.querySelector('div');
-                if (metricDiv && data && data.metrics) {
-                    const precisionPercent = (data.metrics.precision * 100).toFixed(1);
-                    const recallPercent = (data.metrics.recall * 100).toFixed(1);
-                    const f1Percent = (data.metrics.f1_score * 100).toFixed(1);
-                    
-                    metricDiv.innerHTML = `
-                        <small class="text-muted">Chính xác: ${precisionPercent}%</small><br>
-                        <small class="text-muted">Recall: ${recallPercent}%</small><br>
-                        <small class="text-muted">F1-Score: ${f1Percent}%</small>
-                    `;
-                }
-            }
-        } catch (e) {
-            console.error('Error updating metrics display:', e);
-        }
-    }
+    });
+    document.body.appendChild(debugBtn);
     
-    // Call this function after all data is loaded
-    setTimeout(ensureLatestMetrics, 3000);
-});
-
-// Zoom controls for network graph
-document.getElementById('zoomIn').addEventListener('click', function() {
-    // Will be implemented when D3.js graph is ready
-    console.log('Zoom in');
-});
-
-document.getElementById('zoomOut').addEventListener('click', function() {
-    // Will be implemented when D3.js graph is ready
-    console.log('Zoom out');
-});
-
-document.getElementById('resetZoom').addEventListener('click', function() {
-    // Will be implemented when D3.js graph is ready
-    console.log('Reset zoom');
+    // Log metrics when they're loaded
+    fetch('/api/metrics')
+        .then(response => response.json())
+        .then(data => {
+            console.log('Metrics data:', data);
+            if (data && data.metrics) {
+                console.log('Detected fraud count:', data.metrics.detected_fraud_count);
+                console.log('Risk communities:', data.metrics.risk_communities);
+            }
+        })
+        .catch(error => console.error('Error fetching metrics:', error));
+    
+    // Continue with regular initialization
+    fetchAndDisplayMetrics();
+    fetchNetworkData();
+    fetchSuspiciousAccounts();
 });
 </script>
 {% endblock %}
