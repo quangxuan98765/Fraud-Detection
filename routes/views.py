@@ -7,11 +7,7 @@ from . import views_bp
 from detector.fraud_detector import FraudDetector
 from detector.database_manager import DatabaseManager
 from detector.utils.config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
-
-# Định nghĩa ngưỡng mặc định
-FRAUD_SCORE_THRESHOLD = 0.7
-SUSPICIOUS_THRESHOLD = 0.5
-HIGH_RISK_THRESHOLD = 0.7
+from detector.utils.config import DEFAULT_PERCENTILE
 
 # Khởi tạo database manager với thông tin kết nối từ config
 db_manager = DatabaseManager(uri=NEO4J_URI, user=NEO4J_USER, password=NEO4J_PASSWORD)
@@ -111,7 +107,7 @@ def run_analysis():
     """Thực hiện phân tích"""
     try:
         start_time = time.time()
-        result = detector.run_pipeline(percentile_cutoff=FRAUD_SCORE_THRESHOLD)
+        result = detector.run_pipeline(percentile_cutoff=DEFAULT_PERCENTILE)
         end_time = time.time()
         
         if result:

@@ -24,21 +24,21 @@ WITH a,
 
 // Tính anomaly score = weighted sum của các đặc trưng
 WITH a, 
-    (degScore * 0.15) + 
-    (prScore * 0.15) + 
-    (simScore * 0.1) + 
-    (btwScore * 0.1) + 
-    (hubScore * 0.05) + 
-    (authScore * 0.05) + 
-    (coreScore * 0.05) + 
-    (triCount * 0.05) + 
-    (cycleCount * 0.05) + 
+    (degScore * 0.35) + 
+    (prScore * 0.05) + 
+    (simScore * 0.03) + 
+    (btwScore * 0.05) + 
+    (hubScore * 0.08) + 
+    (authScore * 0.03) + 
+    (coreScore * 0.03) + 
+    (triCount * 0.03) + 
+    (cycleCount * 0.03) + 
     (tempBurst * 0.08) + 
-    (txVelocity * 0.05) +
-    (amountVolatility * 0.07) +
-    (maxAmountRatio * 0.05) +
-    (stdTimeBetweenTx * 0.05) +
-    (0.15 * (1 - coalesce(normCommunitySize, 0))) AS score        
+    (txVelocity * 0.03) +
+    (amountVolatility * 0.05) +
+    (maxAmountRatio * 0.09) +
+    (stdTimeBetweenTx * 0.02) +
+    (0.08 * (1 - coalesce(normCommunitySize, 0))) AS score
 SET a.anomaly_score = score
 """
 

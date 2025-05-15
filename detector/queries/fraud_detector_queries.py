@@ -85,7 +85,10 @@ def get_node_cleanup_query(properties):
 
 RELATIONSHIP_CLEANUP_QUERY = """
 MATCH ()-[r:SENT]->()
-REMOVE r.anomaly_score, r.flagged
+REMOVE r.degScore, r.prScore, r.simScore, r.btwScore, r.hubScore, r.authScore, 
+       r.coreScore, r.triCount, r.cycleCount, r.tempBurst, r.txVelocity, 
+       r.amountVolatility, r.maxAmountRatio, r.stdTimeBetweenTx, r.normCommunitySize
+// Keep anomaly_score, flagged, combined_score and fraud_pattern_score for analysis
 """
 
 DELETE_SIMILAR_RELATIONSHIPS_QUERY = "MATCH ()-[r:SIMILAR]-() DELETE r"

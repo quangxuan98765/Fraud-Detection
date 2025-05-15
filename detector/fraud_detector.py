@@ -255,84 +255,99 @@ class FraudDetector:
         """
         print(f"🔍 Đang tìm các tài khoản đáng ngờ...")
         
-        # Tạo Cypher query để lấy các tài khoản đáng ngờ
-        query = """
-        MATCH (a:Account)-[r:SENT]->()
-        WHERE (r.flagged = true OR $threshold IS NOT NULL) AND ($threshold IS NULL OR a.anomaly_score >= $threshold)
-        WITH a, COUNT(r) AS flagged_tx_count, MAX(a.anomaly_score) AS score
-        WHERE flagged_tx_count >= $min_flagged_tx
-        RETURN a.id AS account, flagged_tx_count, score
-        ORDER BY flagged_tx_count DESC, score DESC
-        LIMIT 50
-        """
+        # Clear query logic - separate branches for threshold and flagged criteria        
+        if threshold is None:
+            # Use flagged relationships to identify suspicious accounts
+            query = """
+            MATCH (a:Account)-[r:SENT]->()
+            WHERE r.flagged = true
+            WITH a, COUNT(r) AS flagged_tx_count
+            WHERE flagged_tx_count >= $min_flagged_tx
+            OPTIONAL MATCH (a)-[r2:SENT]->()
+            WHERE r2.combined_score IS NOT NULL
+            WITH a, flagged_tx_count, AVG(r2.combined_score) AS avg_combined_score 
+            RETURN a.id AS account, a.name, flagged_tx_count, 
+                a.anomaly_score AS score, avg_combined_score AS combined_score
+            ORDER BY avg_combined_score DESC, flagged_tx_count DESC
+            LIMIT 50
+            """
+            params = {"min_flagged_tx": min_flagged_tx}
+        else:
+            # Use anomaly_score threshold to identify suspicious accounts
+            query = """
+            MATCH (a:Account)
+            WHERE a.anomaly_score >= $threshold
+            OPTIONAL MATCH (a)-[r:SENT]->() WHERE r.flagged = true
+            WITH a, COUNT(r) AS flagged_tx_count
+            RETURN a.id AS account, a.name, flagged_tx_count, 
+                a.anomaly_score AS score
+            ORDER BY a.anomaly_score DESC, flagged_tx_count DESC
+            LIMIT 50
+            """
+            params = {"threshold": threshold}
         
-        # Thực thi query với tham số
-        params = {
-            "threshold": threshold,
-            "min_flagged_tx": min_flagged_tx
-        }
+        # Verify the query with a debug log
+        print(f"Executing query with params: {params}")
         
-        # Lấy kết quả từ database
-        suspicious_accounts = self.db_manager.run_query(query, params)
+        # Ensure correct result handling
+        results = self.db_manager.run_query(query, params)
         
-        # Kiểm tra nếu là dict đơn (chỉ có 1 kết quả) thì chuyển sang list
-        if isinstance(suspicious_accounts, dict):
-            suspicious_accounts = [suspicious_accounts]
-        elif suspicious_accounts is None:
+        # Convert to list if it's a single result
+        if isinstance(results, dict):
+            suspicious_accounts = [results]
+        elif isinstance(results, list):
+            suspicious_accounts = results
+        else:
             suspicious_accounts = []
         
-        # Nếu không tìm thấy tài khoản đáng ngờ với phương pháp chính, thử một cách khác
+        # If no accounts found, try a direct approach
         if not suspicious_accounts:
-            print("⚠️ Không tìm thấy tài khoản đáng ngờ với phương pháp chính, thử phương pháp thay thế...")
+            print("⚠️ Không tìm thấy tài khoản đáng ngờ, kiểm tra xem có giao dịch được đánh dấu không...")
             
-            # Thử lấy các tài khoản có anomaly_score cao nhất
+            # Check if there are any flagged transactions
+            check_query = """
+            MATCH ()-[r:SENT]->()
+            WHERE r.flagged = true
+            RETURN COUNT(r) AS flagged_count
+            """
+            check_result = self.db_manager.run_query(check_query)
+            
+            if check_result and check_result.get("flagged_count", 0) > 0:
+                print(f"✅ Có {check_result['flagged_count']} giao dịch được đánh dấu, nhưng không tài khoản nào thỏa điều kiện.")
+            else:
+                print("❌ Không có giao dịch nào được đánh dấu. Kiểm tra lại hàm flag_anomalies().")
+            
+            # Try getting accounts with highest anomaly scores
             alt_query = """
             MATCH (a:Account)
             WHERE a.anomaly_score IS NOT NULL
-            WITH a
+            RETURN a.id AS account, a.name, 0 AS flagged_tx_count, 
+                a.anomaly_score AS score
             ORDER BY a.anomaly_score DESC
-            LIMIT 50
-            OPTIONAL MATCH (a)-[r:SENT]->()
-            RETURN 
-                a.id AS account,
-                a.anomaly_score AS score,
-                COUNT(r) AS flagged_tx_count
+            LIMIT 10
             """
             
-            alt_accounts = self.db_manager.run_query(alt_query)
+            alt_results = self.db_manager.run_query(alt_query)
             
-            # Kiểm tra kết quả
-            if isinstance(alt_accounts, dict):
-                suspicious_accounts = [alt_accounts]
-            elif isinstance(alt_accounts, list):
-                suspicious_accounts = alt_accounts
-                
-            if suspicious_accounts and len(suspicious_accounts) > 0:
-                print(f"✅ Tìm thấy {len(suspicious_accounts)} tài khoản có anomaly_score cao nhất với phương pháp thay thế")
+            # Handle results appropriately
+            if isinstance(alt_results, dict):
+                suspicious_accounts = [alt_results]
+            elif isinstance(alt_results, list):
+                suspicious_accounts = alt_results
             else:
-                print("❌ Vẫn không tìm thấy tài khoản đáng ngờ nào")
                 suspicious_accounts = []
-            
-        # In ra màn hình top 50 tài khoản đáng ngờ
+        
+        # Display results
         if suspicious_accounts:
             print(f"✅ Tìm thấy {len(suspicious_accounts)} tài khoản đáng ngờ.")
             print("\n📊 Top tài khoản đáng ngờ:")
-            print(f"{'ID Tài khoản':<20} {'Số giao dịch bị đánh dấu':<25} {'Điểm bất thường':<15}")
-            print("-" * 60)
+            print(f"{'ID Tài khoản':<20} {'Tên (nếu có)':<20} {'Giao dịch đánh dấu':<20} {'Điểm bất thường':<15}")
+            print("-" * 75)
             
-            for acc in suspicious_accounts[:10]:  # Chỉ hiển thị top 10 trên màn hình
-                print(f"{acc['account']:<20} {acc['flagged_tx_count']:<25} {acc['score']:.6f}")
-                
-            # Xuất ra file CSV nếu có dữ liệu
-            try:
-                import pandas as pd
-                df = pd.DataFrame(suspicious_accounts)
-                df.to_csv('suspicious_accounts.csv', index=False)
-                print(f"\n✅ Đã xuất {len(suspicious_accounts)} tài khoản đáng ngờ ra file suspicious_accounts.csv")
-            except Exception as e:
-                print(f"❌ Lỗi khi xuất file CSV: {str(e)}")
+            for acc in suspicious_accounts[:10]:  # Hiển thị top 10
+                name = acc.get('name', 'N/A')
+                print(f"{acc['account']:<20} {name:<20} {acc['flagged_tx_count']:<20} {acc.get('score', 0):.6f}")
         else:
             print("⚠️ Không tìm thấy tài khoản đáng ngờ thỏa mãn điều kiện.")
-            
+        
         return suspicious_accounts
-

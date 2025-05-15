@@ -12,22 +12,22 @@ UPLOAD_FOLDER = 'uploads'
 
 # Feature weights
 FEATURE_WEIGHTS = {
-    'degScore': 0.15,
-    'prScore': 0.15,
-    'simScore': 0.1,
-    'btwScore': 0.1,
-    'hubScore': 0.05,
-    'authScore': 0.05,
-    'coreScore': 0.05,
-    'triCount': 0.05,
-    'cycleCount': 0.05,
-    'tempBurst': 0.08,
-    'txVelocity': 0.05,
-    'amountVolatility': 0.07,
-    'maxAmountRatio': 0.05,
-    'stdTimeBetweenTx': 0.05,
-    'normCommunitySize': 0.15  # Increased to match original code
+    'degScore': 0.35,         # Increased significantly (from 0.15) as it has the highest correlation
+    'prScore': 0.05,          # Decreased (from 0.15) due to low/negative correlation
+    'simScore': 0.03,         # Decreased (from 0.1) due to very low correlation
+    'btwScore': 0.05,         # Decreased (from 0.1) due to low/negative correlation
+    'hubScore': 0.08,         # Increased slightly (from 0.05) due to positive correlation
+    'authScore': 0.03,        # Decreased (from 0.05) due to low correlation
+    'coreScore': 0.03,        # Decreased (from 0.05) due to low correlation
+    'triCount': 0.03,         # Decreased (from 0.05) due to low correlation
+    'cycleCount': 0.03,       # Decreased (from 0.05) due to low correlation
+    'tempBurst': 0.08,        # Kept the same as it has positive correlation
+    'txVelocity': 0.03,       # Decreased (from 0.05) due to low correlation
+    'amountVolatility': 0.05, # Decreased slightly (from 0.07) due to low correlation
+    'maxAmountRatio': 0.09,   # Increased (from 0.05) as it has the second highest correlation
+    'stdTimeBetweenTx': 0.02, # Decreased (from 0.05) due to very low correlation
+    'normCommunitySize': 0.08 # Decreased (from 0.15) but still significant due to positive correlation
 }
 
 # Detection parameters
-DEFAULT_PERCENTILE = 0.97
+DEFAULT_PERCENTILE = 0.99  # Increased from 0.97 to reduce false positives
