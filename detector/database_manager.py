@@ -83,11 +83,14 @@ class DatabaseManager:
             for col in required_columns:
                 if col not in df.columns:
                     raise ValueError(f"Thiếu cột {col} trong file CSV")
-            
-            # Thêm cột is_fraud nếu không tồn tại (mặc định là 0)
+              # Kiểm tra và xử lý cột is_fraud hoặc isFraud
             if 'is_fraud' not in df.columns:
-                print("Không tìm thấy cột is_fraud trong dữ liệu, tạo cột mặc định với giá trị 0")
-                df['is_fraud'] = 0
+                if 'isFraud' in df.columns:
+                    print("Tìm thấy cột isFraud, mapping sang is_fraud")
+                    df['is_fraud'] = df['isFraud']
+                else:
+                    print("Không tìm thấy cột is_fraud hoặc isFraud trong dữ liệu, tạo cột mặc định với giá trị 0")
+                    df['is_fraud'] = 0
             
             with self.driver.session() as session:
                 # Tạo index và xóa dữ liệu cũ

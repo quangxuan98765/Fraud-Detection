@@ -15,9 +15,17 @@ MATCH ()-[r:SENT]->()
 WHERE r.is_fraud IS NOT NULL AND r.ground_truth_fraud IS NULL
 SET r.ground_truth_fraud = CASE 
     WHEN r.is_fraud = 1 OR r.is_fraud = true OR r.is_fraud = '1' THEN true 
-    ELSE false 
+    WHEN r.is_fraud = 0 OR r.is_fraud = false OR r.is_fraud = '0' THEN false
+    ELSE null 
 END
 RETURN COUNT(*) AS mapped
+"""
+
+# Check the actual values of is_fraud before mapping
+CHECK_IS_FRAUD_VALUES = """
+MATCH ()-[r:SENT]->()
+WHERE r.is_fraud IS NOT NULL
+RETURN DISTINCT r.is_fraud, COUNT(*) AS count
 """
 
 CHECK_GROUND_TRUTH_RESULT_QUERY = """
