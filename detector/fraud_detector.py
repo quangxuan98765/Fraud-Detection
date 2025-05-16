@@ -36,22 +36,22 @@ class FraudDetector:
         self.percentile_cutoff = DEFAULT_PERCENTILE
 
     def prepare_ground_truth(self):
-        """Map isFraud từ CSV sang ground_truth_fraud để hỗ trợ đánh giá."""
+        """Map is_fraud từ CSV sang ground_truth_fraud để hỗ trợ đánh giá."""
         print("🔄 Đang chuẩn bị dữ liệu ground truth...")
         
-        # Kiểm tra xem isFraud có tồn tại trong SENT relationships không
+        # Kiểm tra xem is_fraud có tồn tại trong SENT relationships không
         result = self.db_manager.run_query(CHECK_FRAUD_FIELD_QUERY)
         
         if result and result["has_is_fraud"] > 0:
-            print(f"  • Tìm thấy {result['has_is_fraud']} giao dịch có trường isFraud")
+            print(f"  • Tìm thấy {result['has_is_fraud']} giao dịch có trường is_fraud")
             
-            # Map từ isFraud sang ground_truth_fraud
+            # Map từ is_fraud sang ground_truth_fraud
             map_result = self.db_manager.run_query(MAP_FRAUD_TO_GROUND_TRUTH_QUERY)
             
             if map_result:
-                print(f"  ✅ Đã map {map_result['mapped']} giao dịch từ isFraud sang ground_truth_fraud")
+                print(f"  ✅ Đã map {map_result['mapped']} giao dịch từ is_fraud sang ground_truth_fraud")
         else:
-            print("  ⚠️ Không tìm thấy trường isFraud trong dữ liệu SENT relationships")
+            print("  ⚠️ Không tìm thấy trường is_fraud trong dữ liệu SENT relationships")
         
         # Kiểm tra kết quả
         final_result = self.db_manager.run_query(CHECK_GROUND_TRUTH_RESULT_QUERY)
@@ -229,7 +229,7 @@ class FraudDetector:
         self.db_manager.delete_graph_projections()
 
         # 12. Dọn dẹp các thuộc tính và mối quan hệ không cần thiết
-        cleanup_result = self.db_manager.cleanup_properties()
+        # cleanup_result = self.db_manager.cleanup_properties()
 
         end_time = time.time()
         execution_time = end_time - start_time

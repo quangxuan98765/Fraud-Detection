@@ -46,29 +46,7 @@ class AnomalyDetector:
             print(f"✅ Đã chuyển anomaly_score từ Account sang {relationship_result['updated_count']} giao dịch")
         else:
             print("⚠️ Không thể chuyển anomaly_score sang các giao dịch!")
-        
-        # Export anomaly score từ graph về DataFrame để xuất ra file csv
-        df = self.db_manager.run_query(EXPORT_ANOMALY_SCORES)
-        import pandas as pd
-        if df is None:
-            print("❌ Không có dữ liệu để export.")
-            return
-
-        # Chuyển đổi kết quả sang DataFrame
-        if isinstance(df, dict):
-            # Chỉ có một hàng dữ liệu
-            df = pd.DataFrame([df])
-        elif isinstance(df, list):
-            # Nhiều hàng dữ liệu
-            df = pd.DataFrame(df)
-        
-        # Xuất ra file CSV
-        if not df.empty:
-            df.to_csv('anomaly_scores.csv', index=False)
-            print(f"✅ Đã xuất {len(df)} giao dịch có anomaly score ra file anomaly_scores.csv")
-                
-        print("✅ Đã tính toán xong anomaly score.")    
-        
+   
     def flag_anomalies(self, percentile_cutoff=None):
         """Đánh dấu giao dịch bất thường dựa trên ngưỡng phân vị (percentile)."""
         if percentile_cutoff is not None:
@@ -108,28 +86,49 @@ class AnomalyDetector:
         print(f"✅ Stats: Total={stats.get('total', 0)}, With Score={stats.get('with_score', 0)}, " +
             f"Min={stats.get('min', 0)}, Max={stats.get('max', 0)}, Avg={stats.get('avg', 0)}")
         
-        # DIRECT FIX: Flag top 3% transactions by anomaly score
-        direct_flag_query = """
+        # Cải tiến: Sử dụng phương pháp kết hợp percentile và biến đổi ngưỡng tương đối
+        # Chỉ đánh dấu giao dịch có điểm bất thường cao hơn NHIỀU so với điểm trung bình
+        improved_flag_query = """
         MATCH ()-[r:SENT]->()
-        WITH r, r.anomaly_score AS score
-        ORDER BY score DESC
-        WITH collect(r) AS ordered_rels, count(r) AS total
-        WITH ordered_rels, total, toInteger(total * $percentile) AS cutoff
-        UNWIND range(0, cutoff-1) AS idx
-        WITH ordered_rels[idx] AS r
-        SET r.flagged = true
-        RETURN COUNT(r) AS flagged_count
-        """
-        flag_result = self.db_manager.run_query(direct_flag_query, {"percentile": 1 - self.percentile_cutoff})
-        flagged = flag_result.get("flagged_count", 0) if flag_result else 0
+        WITH AVG(r.anomaly_score) AS avg_score, STDEV(r.anomaly_score) AS std_score, MAX(r.anomaly_score) AS max_score,
+             collect(r) AS all_txs, percentileCont(r.anomaly_score, $percentile) AS perc_threshold
+             
+        // Tính toán ngưỡng thông minh - lấy giá trị cao nhất của các ngưỡng:
+        // 1. Ngưỡng phân vị
+        // 2. Ngưỡng thống kê (trung bình + 3*độ lệch chuẩn)
+        // 3. Ngưỡng tương đối (80% giá trị lớn nhất)
+        WITH all_txs, 
+             perc_threshold AS percentile_threshold,
+             avg_score + 3 * std_score AS statistical_threshold,
+             max_score * 0.8 AS relative_threshold,
+             CASE 
+                WHEN perc_threshold > (avg_score + 3 * std_score) THEN perc_threshold
+                WHEN (avg_score + 3 * std_score) > (max_score * 0.8) THEN avg_score + 3 * std_score
+                ELSE max_score * 0.8
+             END AS smart_threshold
         
-        # Reset flagged=false for other transactions
-        unflag_query = """
-        MATCH ()-[r:SENT]->()
-        WHERE r.flagged IS NULL OR r.flagged <> true
+        // Reset tất cả flagged về false
+        UNWIND all_txs AS r
         SET r.flagged = false
+        
+        // Đặt flagged=true cho các giao dịch vượt ngưỡng
+        WITH collect(r) AS reset_txs, smart_threshold
+        MATCH ()-[r:SENT]->()
+        WHERE r.anomaly_score >= smart_threshold
+        SET r.flagged = true
+        
+        RETURN COUNT(r) AS flagged_count, smart_threshold AS threshold
         """
-        self.db_manager.run_query(unflag_query)
+        
+        flag_result = self.db_manager.run_query(improved_flag_query, {"percentile": self.percentile_cutoff})
+        
+        if flag_result:
+            flagged = flag_result.get("flagged_count", 0)
+            threshold = flag_result.get("threshold", 0)
+            print(f"✅ Đã đánh dấu {flagged} giao dịch bất thường (ngưỡng điểm: {threshold:.6f})")
+        else:
+            print("⚠️ Không thể đánh dấu giao dịch bất thường")
+            flagged = 0
         
         # Verify flagging worked
         verify_query = """
@@ -140,7 +139,6 @@ class AnomalyDetector:
         verify_result = self.db_manager.run_query(verify_query)
         final_count = verify_result.get("count", 0) if verify_result else 0
         
-        print(f"✅ Đã đánh dấu {flagged} giao dịch bất thường")
         print(f"✅ Tổng số giao dịch được đánh dấu trong DB: {final_count}")
         
         return flagged

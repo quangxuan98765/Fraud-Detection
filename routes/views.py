@@ -74,7 +74,7 @@ def upload():
             
             try:
                 start_time = time.time()
-                success = detector.import_data(filepath)
+                success = db_manager.import_data(filepath)
                 if success:
                     import_time = time.time() - start_time
                     flash(f'Import thành công trong {import_time:.2f} giây', 'success')
@@ -126,7 +126,7 @@ def run_analysis():
 def clear_database():
     """Xóa dữ liệu database"""
     try:
-        success = detector.clear_database()
+        success = db_manager.clear_database()
         if success:
             flash('Đã xóa thành công tất cả dữ liệu', 'success')
         else:

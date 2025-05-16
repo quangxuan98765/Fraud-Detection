@@ -163,7 +163,7 @@ def get_suspicious_accounts():
         if min_flagged:
             min_flagged = int(min_flagged)
         
-        db_manager = DatabaseManager()
+        db_manager = DatabaseManager(uri=NEO4J_URI, user=NEO4J_USER, password=NEO4J_PASSWORD)
         
         # GUARANTEED RESULTS QUERY - Get top accounts by anomaly score
         # This ensures we always return something even if the regular methods fail

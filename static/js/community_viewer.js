@@ -632,10 +632,10 @@ document.addEventListener('DOMContentLoaded', function() {
           // Sắp xếp giao dịch theo giá trị giảm dần và ưu tiên giao dịch có điểm rủi ro cao
         transactions.sort((a, b) => {
             // Determine if transactions are high-risk based on their source and target scores
-            const aIsFraud = a.source_score > 0.8 && a.target_score > 0.8;
-            const bIsFraud = b.source_score > 0.8 && b.target_score > 0.8;
+            const ais_fraud = a.source_score > 0.8 && a.target_score > 0.8;
+            const bis_fraud = b.source_score > 0.8 && b.target_score > 0.8;
             
-            if (aIsFraud !== bIsFraud) return bIsFraud - aIsFraud;
+            if (ais_fraud !== bis_fraud) return bis_fraud - ais_fraud;
             return b.amount - a.amount;
         });
         

@@ -84,10 +84,10 @@ class DatabaseManager:
                 if col not in df.columns:
                     raise ValueError(f"Thiếu cột {col} trong file CSV")
             
-            # Thêm cột isFraud nếu không tồn tại (mặc định là 0)
-            if 'isFraud' not in df.columns:
-                print("Không tìm thấy cột isFraud trong dữ liệu, tạo cột mặc định với giá trị 0")
-                df['isFraud'] = 0
+            # Thêm cột is_fraud nếu không tồn tại (mặc định là 0)
+            if 'is_fraud' not in df.columns:
+                print("Không tìm thấy cột is_fraud trong dữ liệu, tạo cột mặc định với giá trị 0")
+                df['is_fraud'] = 0
             
             with self.driver.session() as session:
                 # Tạo index và xóa dữ liệu cũ
@@ -129,7 +129,7 @@ class DatabaseManager:
                                 "to_ac": row['nameDest'],
                                 "amount": float(row['amount']),
                                 "step": int(row['step']),
-                                "is_fraud": int(row['isFraud']),
+                                "is_fraud": int(row['is_fraud']),
                                 "type": row['type']
                             })
                     

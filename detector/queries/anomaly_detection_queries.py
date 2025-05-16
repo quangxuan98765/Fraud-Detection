@@ -22,23 +22,23 @@ WITH a,
     a.stdTimeBetweenTx AS stdTimeBetweenTx,
     a.normCommunitySize AS normCommunitySize
 
-// Tính anomaly score = weighted sum của các đặc trưng
+// Tính anomaly score = weighted sum của các đặc trưng, tập trung vào degScore và maxAmountRatio
 WITH a, 
-    (degScore * 0.35) + 
-    (prScore * 0.05) + 
-    (simScore * 0.03) + 
-    (btwScore * 0.05) + 
+    (degScore * 0.60) + 
+    (prScore * 0.02) + 
+    (simScore * 0.01) + 
+    (btwScore * 0.02) + 
     (hubScore * 0.08) + 
-    (authScore * 0.03) + 
-    (coreScore * 0.03) + 
-    (triCount * 0.03) + 
-    (cycleCount * 0.03) + 
-    (tempBurst * 0.08) + 
-    (txVelocity * 0.03) +
-    (amountVolatility * 0.05) +
-    (maxAmountRatio * 0.09) +
-    (stdTimeBetweenTx * 0.02) +
-    (0.08 * (1 - coalesce(normCommunitySize, 0))) AS score
+    (authScore * 0.01) + 
+    (coreScore * 0.01) + 
+    (triCount * 0.01) + 
+    (cycleCount * 0.01) + 
+    (tempBurst * 0.05) + 
+    (txVelocity * 0.01) +
+    (amountVolatility * 0.02) +
+    (maxAmountRatio * 0.12) +
+    (stdTimeBetweenTx * 0.01) +
+    (0.02 * (1 - coalesce(normCommunitySize, 0))) AS score
 SET a.anomaly_score = score
 """
 
@@ -67,5 +67,5 @@ SET tx.flagged = false
 EXPORT_ANOMALY_SCORES = """
 MATCH ()-[r:SENT]->()
 WHERE r.anomaly_score IS NOT NULL
-RETURN id(r) AS transaction_id, r.anomaly_score AS anomaly_score, r.isFraud AS isFraud
+RETURN id(r) AS transaction_id, r.anomaly_score AS anomaly_score, r.is_fraud AS is_fraud
 """

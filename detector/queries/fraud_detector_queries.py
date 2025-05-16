@@ -7,14 +7,14 @@ CHECK_FRAUD_FIELD_QUERY = """
 MATCH ()-[r:SENT]->()
 RETURN 
     COUNT(r) AS total,
-    SUM(CASE WHEN r.isFraud IS NOT NULL THEN 1 ELSE 0 END) AS has_is_fraud
+    SUM(CASE WHEN r.is_fraud IS NOT NULL THEN 1 ELSE 0 END) AS has_is_fraud
 """
 
 MAP_FRAUD_TO_GROUND_TRUTH_QUERY = """
 MATCH ()-[r:SENT]->()
-WHERE r.isFraud IS NOT NULL AND r.ground_truth_fraud IS NULL
+WHERE r.is_fraud IS NOT NULL AND r.ground_truth_fraud IS NULL
 SET r.ground_truth_fraud = CASE 
-    WHEN r.isFraud = 1 OR r.isFraud = true OR r.isFraud = '1' THEN true 
+    WHEN r.is_fraud = 1 OR r.is_fraud = true OR r.is_fraud = '1' THEN true 
     ELSE false 
 END
 RETURN COUNT(*) AS mapped
