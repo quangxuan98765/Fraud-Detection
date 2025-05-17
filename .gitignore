@@ -8,6 +8,7 @@
 /data/
 /datasets/
 /raw_data/
+/uploads/
 
 # Model files
 *.pkl
