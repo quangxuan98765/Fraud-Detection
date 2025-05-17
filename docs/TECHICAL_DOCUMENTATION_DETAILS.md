@@ -62,7 +62,7 @@ $$
 
 To ensure efficient querying, an index was created on the account identifier:
 
-$$\text{CREATE INDEX account\_id\_index FOR (a:Account) ON (a.id)}$$
+$$\mathtt{CREATE INDEX account\_id\_index FOR (a:Account) ON (a.id)}$$
 
 This schema design enables efficient traversal of transaction chains, detection of unusual patterns, and application of graph algorithms for feature extraction.
 
@@ -183,7 +183,7 @@ Features were combined into a unified anomaly score using an optimized weighting
 
 $$
 \begin{aligned}
-\text{anomaly\_score}(v) = &0.38 \cdot \text{degScore}(v) + 0.18 \cdot \text{hubScore}(v) + \\
+\mathtt{anomaly\_score}(v) = &0.38 \cdot \text{degScore}(v) + 0.18 \cdot \text{hubScore}(v) + \\
 &0.15 \cdot \text{normCommunitySize}(v) + 0.07 \cdot \text{amountVolatility}(v) + \\
 &0.07 \cdot \text{txVelocity}(v) + 0.05 \cdot \text{btwScore}(v) + \\
 &0.05 \cdot \text{prScore}(v) + 0.05 \cdot \text{authScore}(v)
@@ -218,13 +218,13 @@ The system employs a four-tier confidence classification system, where each tier
 A transaction is flagged with very high confidence if any of these conditions are met:
 
 1. **Extreme anomaly score**:
-   $$\text{anomaly\_score}(tx) \geq \theta_{very\_high} \cdot 1.05$$
+   $$\mathtt{anomaly\_score}(tx) \geq \theta_{very\_high} \cdot 1.05$$
 
 2. **High anomaly with suspicious graph structure**:
-   $$\text{anomaly\_score}(tx) \geq \theta_{very\_high} \text{ AND } (H(src) \geq 0.85 \text{ OR } C_{size}(src) \leq 0.05)$$
+   $$\mathtt{anomaly\_score}(tx) \geq \theta_{very\_high} \text{ AND } (H(src) \geq 0.85 \text{ OR } C_{size}(src) \leq 0.05)$$
 
 3. **High anomaly with large transaction amount**:
-   $$\text{anomaly\_score}(tx) \geq \theta_{very\_high} \text{ AND } \text{amount}(tx) \geq \theta_{amount\_high} \cdot 1.2$$
+   $$\mathtt{anomaly\_score}(tx) \geq \theta_{very\_high} \text{ AND } \text{amount}(tx) \geq \theta_{amount\_high} \cdot 1.2$$
 
 Where:
 - $\theta_{very\_high}$ is the 99th percentile threshold (0.165)
@@ -237,13 +237,13 @@ Where:
 A transaction is flagged with high confidence if any of these conditions are met:
 
 1. **High anomaly score**:
-   $$\text{anomaly\_score}(tx) \geq \theta_{high}$$
+   $$\mathtt{anomaly\_score}(tx) \geq \theta_{high}$$
 
 2. **Medium anomaly with suspicious graph structure**:
-   $$\text{anomaly\_score}(tx) \geq \theta_{medium} \text{ AND } (H(src) \geq 0.7 \text{ OR } C_D(src) \geq 0.7 \text{ OR } C_{size}(src) \leq 0.15 \text{ OR } B(src) \geq 0.7)$$
+   $$\mathtt{anomaly\_score}(tx) \geq \theta_{medium} \text{ AND } (H(src) \geq 0.7 \text{ OR } C_D(src) \geq 0.7 \text{ OR } C_{size}(src) \leq 0.15 \text{ OR } B(src) \geq 0.7)$$
 
 3. **Medium anomaly with high transaction amount**:
-   $$\text{anomaly\_score}(tx) \geq \theta_{medium} \text{ AND } \text{amount}(tx) \geq \theta_{amount\_medium} \cdot 1.5$$
+   $$\mathtt{anomaly\_score}(tx) \geq \theta_{medium} \text{ AND } \text{amount}(tx) \geq \theta_{amount\_medium} \cdot 1.5$$
 
 Where:
 - $\theta_{high}$ is the 97.5th percentile threshold (0.155)
@@ -257,10 +257,10 @@ Where:
 A transaction is flagged with medium confidence if either of these conditions is met:
 
 1. **Medium anomaly score**:
-   $$\text{anomaly\_score}(tx) \geq \theta_{medium}$$
+   $$\mathtt{anomaly\_score}(tx) \geq \theta_{medium}$$
 
 2. **Low anomaly with multiple suspicious patterns**:
-   $$\text{anomaly\_score}(tx) \geq \theta_{low} \text{ AND } ((H(src) \geq 0.5 \text{ AND } V_a(src) \geq 0.6) \text{ OR } (C_D(src) \geq 0.6 \text{ AND } \text{amount}(tx) \geq \theta_{amount\_medium}))$$
+   $$\mathtt{anomaly\_score}(tx) \geq \theta_{low} \text{ AND } ((H(src) \geq 0.5 \text{ AND } V_a(src) \geq 0.6) \text{ OR } (C_D(src) \geq 0.6 \text{ AND } \text{amount}(tx) \geq \theta_{amount\_medium}))$$
 
 Where:
 - $\theta_{low}$ is the 90th percentile threshold (0.147)
@@ -270,7 +270,7 @@ Where:
 
 Used only in recall-optimized mode:
 
-$$\text{amount}(tx) \geq \theta_{amount\_high} \text{ OR } (H(src) \geq 0.8 \text{ AND } \text{anomaly\_score}(tx) \geq \theta_{low} \cdot 0.9)$$
+$$\mathtt{amount}(tx) \geq \theta_{amount\_high} \text{ OR } (H(src) \geq 0.8 \text{ AND } \text{anomaly\_score}(tx) \geq \theta_{low} \cdot 0.9)$$
 
 ### 4.4.3 Related Fraud Detection
 
@@ -278,16 +278,16 @@ Beyond primary detection, the system employs a second-order detection mechanism 
 
 $$
 \begin{aligned}
-\text{MATCH } &(a1:Account)-[tx1:SENT]->(a2:Account), \\
+\mathtt{MATCH } &(a1:Account)-[tx1:SENT]->(a2:Account), \\
 &(a1)-[tx2:SENT]->(a3:Account) \\
-\text{WHERE } &tx1.\text{flagged} = \text{true} \text{ AND } \\
-&tx1.\text{confidence} \geq 0.85 \text{ AND } \\
-&tx2.\text{flagged} = \text{false} \text{ AND } \\
-&tx2.\text{anomaly\_score} \geq \theta_{low} \cdot 0.7 \\
-\text{SET } &tx2.\text{flagged} = \text{true}, \\
-&tx2.\text{confidence} = 0.7, \\
-&tx2.\text{flag\_reason} = \text{"Related to high-confidence fraud account", } \\
-&tx2.\text{detection\_rule} = \text{"related\_fraud"}
+\mathtt{WHERE } &tx1.\mathtt{flagged} = \mathtt{true} \mathtt{ AND } \\
+&tx1.\mathtt{confidence} \geq 0.85 \mathtt{ AND } \\
+&tx2.\mathtt{flagged} = \mathtt{false} \mathtt{ AND } \\
+&tx2.\mathtt{anomaly\_score} \geq \theta_{low} \cdot 0.7 \\
+\mathtt{SET } &tx2.\mathtt{flagged} = \mathtt{true}, \\
+&tx2.\mathtt{confidence} = 0.7, \\
+&tx2.\mathtt{flag\_reason} = \mathtt{"Related to high-confidence fraud account", } \\
+&tx2.\mathtt{detection\_rule} = \mathtt{"related\_fraud"}
 \end{aligned}
 $$
 
@@ -307,16 +307,16 @@ Each mode employs different thresholds and filtering strategies:
 
 $$
 \begin{aligned}
-\text{MATCH } &(src:Account)-[tx:SENT]->(dest:Account) \\
-\text{WHERE } &tx.\text{flagged} = \text{true} \text{ AND } \\
-&tx.\text{confidence} \leq 0.8 \text{ AND } \\
+\mathtt{MATCH } &(src:Account)-[tx:SENT]->(dest:Account) \\
+\mathtt{WHERE } &tx.\mathtt{flagged} = \mathtt{true} \mathtt{ AND } \\
+&tx.\mathtt{confidence} \leq 0.8 \mathtt{ AND } \\
 &(
-    &(tx.\text{amount} \leq \mu_{amount} \cdot 1.1 \text{ AND } tx.\text{anomaly\_score} \leq \theta_{medium}) \text{ OR } \\
-    &(src.txVelocity \leq 0.3 \text{ AND } tx.\text{anomaly\_score} \leq \theta_{medium})
+    &(tx.\mathtt{amount} \leq \mu_{amount} \cdot 1.1 \mathtt{ AND } tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \mathtt{ OR } \\
+    &(src.txVelocity \leq 0.3 \mathtt{ AND } tx.\mathtt{anomaly\_score} \leq \theta_{medium})
 &) \\
-\text{SET } &tx.\text{flagged} = \text{false}, \\
-&tx.\text{filtered} = \text{true}, \\
-&tx.\text{filter\_reason} = \text{"Precision mode filter"}
+\mathtt{SET } &tx.\mathtt{flagged} = \mathtt{false}, \\
+&tx.\mathtt{filtered} = \mathtt{true}, \\
+&tx.\mathtt{filter\_reason} = \mathtt{"Precision mode filter"}
 \end{aligned}
 $$
 
