@@ -2,7 +2,7 @@ import pandas as pd
 from detector.utils.config import MAX_NODES, MAX_RELATIONSHIPS
 import os
 
-def network_preserving_sampling(input_path, output_path, target_nodes=200000, target_edges=400000, target_fraud_rate=0.00129):
+def network_preserving_sampling(input_path, output_path, target_nodes=200000, target_edges=400000, target_fraud_rate=0.0129):
     """Phương pháp lấy mẫu bảo toàn cấu trúc mạng lưới và tỷ lệ gian lận với kiểm soát chặt chẽ số lượng node"""
     print("⚙️ Đang lọc dataset với phương pháp bảo toàn cấu trúc mạng...")
     
