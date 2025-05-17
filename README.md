@@ -69,6 +69,3 @@ python final_fraud_detection.py --skip-basic
 - Incorporation of machine learning models
 - Real-time fraud detection capabilities
 - Enhanced visualization tools
-
-## License
-[MIT License](LICENSE)
