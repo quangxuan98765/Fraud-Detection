@@ -62,7 +62,7 @@ $$
 
 To ensure efficient querying, an index was created on the account identifier:
 
-$$\mathtt{CREATE\ INDEX\ account\text{\_}id\text{\_}index\ FOR\ (a:Account)\ ON\ (a.id)}$$
+$$\mathtt{CREATE\ INDEX\ account{\textunderscore}id{\textunderscore}index\ FOR\ (a:Account)\ ON\ (a.id)}$$
 
 This schema design enables efficient traversal of transaction chains, detection of unusual patterns, and application of graph algorithms for feature extraction.
 
