@@ -311,7 +311,7 @@ $$
 &tx2.\mathtt{anomaly\_score} \geq \theta_{low} \cdot 0.7 \\
 \mathtt{SET } &tx2.\mathtt{flagged} = \mathtt{true}, \\
 &tx2.\mathtt{confidence} = 0.7, \\
-&tx2.\mathtt{flag\_reason} = \mathtt{"Related to high-confidence fraud account", } \\
+&tx2.\mathtt{flag\_reason} = \mathtt{"Related to high-confidence fraud account"}, \\
 &tx2.\mathtt{detection\_rule} = \mathtt{"related\_fraud"}
 \end{aligned}
 $$
@@ -335,11 +335,13 @@ $$
 \mathtt{MATCH } &(src:Account)-[tx:SENT]->(dest:Account) \\
 \mathtt{WHERE } &tx.\mathtt{flagged} = \mathtt{true} \mathtt{ AND } \\
 &\big( (tx.\mathtt{confidence} \leq 0.72 \mathtt{ AND } \\
-&\quad( (tx.\mathtt{amount} \leq \mu_{amount} \cdot 1.2 \mathtt{ AND } tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \mathtt{ OR } \\
-&\quad (src.txVelocity \leq 0.3 \mathtt{ AND } tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \mathtt{ OR } \\
-&\quad (tx.detection\_rule = "medium\_confidence" \mathtt{ AND } \\
-&\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium} \cdot 0.98 \mathtt{ AND } \\
-&\quad (src.normCommunitySize \geq 0.3)) \\
+&\quad( (tx.\mathtt{amount} \leq \mu_{amount} \cdot 1.2 \mathtt{ AND } \\
+&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \mathtt{ OR } \\
+&\quad (src.txVelocity \leq 0.3 \mathtt{ AND } \\
+&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \mathtt{ OR } \\
+&\quad (tx.detection\_rule = \mathtt{"medium\_confidence"} \mathtt{ AND } \\
+&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium} \cdot 0.98 \mathtt{ AND } \\
+&\quad\quad (src.normCommunitySize \geq 0.3)) \\
 &\quad) ) \mathtt{ OR } \\
 &(tx.\mathtt{confidence} \leq 0.8 \mathtt{ AND } \\
 &\quad( (src.hubScore < 0.5) \mathtt{ AND } \\
