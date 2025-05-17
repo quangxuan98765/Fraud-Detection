@@ -60,8 +60,8 @@ python final_fraud_detection.py --skip-basic
 
 ## Requirements
 - Python 3.6+
-- Neo4j Database 4.0+
-- Neo4j GDS Library 1.8+
+- Neo4j Database 5.0+
+- Neo4j GDS Library 2.0+
 - Python packages: neo4j, pandas, flask (see requirements.txt)
 
 ## Future Improvements
