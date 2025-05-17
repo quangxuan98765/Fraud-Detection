@@ -305,9 +305,9 @@ $$
 \begin{aligned}
 \mathtt{MATCH } &(a1:Account)-[tx1:SENT]->(a2:Account), \\
 &(a1)-[tx2:SENT]->(a3:Account) \\
-\mathtt{WHERE } &tx1.\mathtt{flagged} = \mathtt{true} \mathtt{ AND } \\
-&tx1.\mathtt{confidence} \geq 0.85 \mathtt{ AND } \\
-&tx2.\mathtt{flagged} = \mathtt{false} \mathtt{ AND } \\
+\mathtt{WHERE } &tx1.\mathtt{flagged} = \mathtt{true} \text{ AND } \\
+&tx1.\mathtt{confidence} \geq 0.85 \text{ AND } \\
+&tx2.\mathtt{flagged} = \mathtt{false} \text{ AND } \\
 &tx2.\mathtt{anomaly\_score} \geq \theta_{low} \cdot 0.7 \\
 \mathtt{SET } &tx2.\mathtt{flagged} = \mathtt{true}, \\
 &tx2.\mathtt{confidence} = 0.7, \\
@@ -333,20 +333,20 @@ Each mode employs different thresholds and filtering strategies:
 $$
 \begin{aligned}
 \mathtt{MATCH } &(src:Account)-[tx:SENT]->(dest:Account) \\
-\mathtt{WHERE } &tx.\mathtt{flagged} = \mathtt{true} \mathtt{ AND } \\
-&\big( (tx.\mathtt{confidence} \leq 0.72 \mathtt{ AND } \\
-&\quad( (tx.\mathtt{amount} \leq \mu_{amount} \cdot 1.2 \mathtt{ AND } \\
-&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \mathtt{ OR } \\
-&\quad (src.txVelocity \leq 0.3 \mathtt{ AND } \\
-&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \mathtt{ OR } \\
-&\quad (tx.detection\_rule = \mathtt{"medium\_confidence"} \mathtt{ AND } \\
-&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium} \cdot 0.98 \mathtt{ AND } \\
+\mathtt{WHERE } &tx.\mathtt{flagged} = \mathtt{true} \text{ AND } \\
+&\big( (tx.\mathtt{confidence} \leq 0.72 \text{ AND } \\
+&\quad( (tx.\mathtt{amount} \leq \mu_{amount} \cdot 1.2 \text{ AND } \\
+&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \text{ OR } \\
+&\quad (src.txVelocity \leq 0.3 \text{ AND } \\
+&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \text{ OR } \\
+&\quad (tx.detection\_rule = \mathtt{"medium\_confidence"} \text{ AND } \\
+&\quad\quad tx.\mathtt{anomaly\_score} \leq \theta_{medium} \cdot 0.98 \text{ AND } \\
 &\quad\quad (src.normCommunitySize \geq 0.3)) \\
-&\quad) ) \mathtt{ OR } \\
-&(tx.\mathtt{confidence} \leq 0.8 \mathtt{ AND } \\
-&\quad( (src.hubScore < 0.5) \mathtt{ AND } \\
-&\quad (src.degScore < 0.5) \mathtt{ AND } \\
-&\quad tx.\mathtt{anomaly\_score} < \theta_{high} \cdot 0.95 \mathtt{ AND } \\
+&\quad) ) \text{ OR } \\
+&(tx.\mathtt{confidence} \leq 0.8 \text{ AND } \\
+&\quad( (src.hubScore < 0.5) \text{ AND } \\
+&\quad (src.degScore < 0.5) \text{ AND } \\
+&\quad tx.\mathtt{anomaly\_score} < \theta_{high} \cdot 0.95 \text{ AND } \\
 &\quad tx.\mathtt{amount} < \theta_{amount\_high} \cdot 0.5)) \big) \\
 \mathtt{SET } &tx.\mathtt{flagged} = \mathtt{false}, \\
 &tx.\mathtt{filtered} = \mathtt{true}, \\
