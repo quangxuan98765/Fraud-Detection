@@ -62,7 +62,7 @@ $$
 
 To ensure efficient querying, an index was created on the account identifier:
 
-$$\mathtt{CREATE INDEX account\_id\_index FOR (a:Account) ON (a.id)}$$
+$$\mathtt{CREATE\ INDEX\ account\_id\_index\ FOR\ (a:Account)\ ON\ (a.id)}$$
 
 This schema design enables efficient traversal of transaction chains, detection of unusual patterns, and application of graph algorithms for feature extraction.
 
@@ -270,7 +270,7 @@ Where:
 
 Used only in recall-optimized mode:
 
-$$\mathtt{amount}(tx) \geq \theta_{amount\_high} \text{ OR } (H(src) \geq 0.8 \text{ AND } \text{anomaly\_score}(tx) \geq \theta_{low} \cdot 0.9)$$
+$$\mathtt{amount}(tx) \geq \theta_{amount\_high} \mathtt{ OR } (H(src) \geq 0.8 \mathtt{ AND } \mathtt{anomaly\_score}(tx) \geq \theta_{low} \cdot 0.9)$$
 
 ### 4.4.3 Related Fraud Detection
 
@@ -305,7 +305,7 @@ Each mode employs different thresholds and filtering strategies:
 
 #### Precision Mode False Positive Filtering
 
-$$
+<!-- $$
 \begin{aligned}
 \mathtt{MATCH } &(src:Account)-[tx:SENT]->(dest:Account) \\
 \mathtt{WHERE } &tx.\mathtt{flagged} = \mathtt{true} \mathtt{ AND } \\
@@ -314,6 +314,18 @@ $$
     &(tx.\mathtt{amount} \leq \mu_{amount} \cdot 1.1 \mathtt{ AND } tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \mathtt{ OR } \\
     &(src.txVelocity \leq 0.3 \mathtt{ AND } tx.\mathtt{anomaly\_score} \leq \theta_{medium})
 &) \\
+\mathtt{SET } &tx.\mathtt{flagged} = \mathtt{false}, \\
+&tx.\mathtt{filtered} = \mathtt{true}, \\
+&tx.\mathtt{filter\_reason} = \mathtt{"Precision mode filter"}
+\end{aligned}
+$$ -->
+$$
+\begin{aligned}
+\mathtt{MATCH } &(src:Account)-[tx:SENT]->(dest:Account) \\
+\mathtt{WHERE } &tx.\mathtt{flagged} = \mathtt{true} \mathtt{ AND } \\
+&tx.\mathtt{confidence} \leq 0.8 \mathtt{ AND } \\
+&\big( (tx.\mathtt{amount} \leq \mu_{amount} \cdot 1.1 \mathtt{ AND } tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \\
+&\quad \mathtt{ OR } (src.txVelocity \leq 0.3 \mathtt{ AND } tx.\mathtt{anomaly\_score} \leq \theta_{medium}) \big) \\
 \mathtt{SET } &tx.\mathtt{flagged} = \mathtt{false}, \\
 &tx.\mathtt{filtered} = \mathtt{true}, \\
 &tx.\mathtt{filter\_reason} = \mathtt{"Precision mode filter"}
