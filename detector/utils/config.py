@@ -12,22 +12,22 @@ UPLOAD_FOLDER = 'uploads'
 
 # Feature weights
 FEATURE_WEIGHTS = {
-    'degScore': 0.60,
-    'prScore': 0.02,
-    'simScore': 0.01,
-    'btwScore': 0.02,
-    'hubScore': 0.08,
-    'authScore': 0.01,
-    'coreScore': 0.01,
-    'triCount': 0.01,
-    'cycleCount': 0.01,
-    'tempBurst': 0.05,
-    'txVelocity': 0.01,
-    'amountVolatility': 0.02,
-    'maxAmountRatio': 0.12,
-    'stdTimeBetweenTx': 0.01,
-    'normCommunitySize': 0.02,
+    'degScore': 0.38,
+    'hubScore': 0.18,
+    'normCommunitySize': 0.15,
+    'amountVolatility': 0.07,
+    'txVelocity': 0.07,
+    'btwScore': 0.05,
+    'prScore': 0.05,
+    'authScore': 0.05,
+    'maxAmountRatio': 0.00,
+    'tempBurst': 0.00,
+    'simScore': 0.00,
+    'coreScore': 0.00,
+    'triCount': 0.00,
+    'cycleCount': 0.00,
+    'stdTimeBetweenTx': 0.00,
 }
 
 # Detection parameters
-DEFAULT_PERCENTILE = 0.995  # Tăng từ 0.99 lên 0.995 để giảm false positives
+DEFAULT_PERCENTILE = 0.99  # Tăng từ 0.99 lên 0.995 để giảm false positives
