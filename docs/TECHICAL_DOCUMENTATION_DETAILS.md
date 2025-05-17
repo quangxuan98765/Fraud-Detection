@@ -29,8 +29,6 @@ Working Dataset Characteristics
 
 Our experiments were conducted on this carefully constructed sample with the following properties:
 
-Our experiments were conducted on this carefully constructed sample with the following properties:
-
 - **Transaction volume**: 96,372 transactions (1.52% of original)
 - **Account count**: 184,582 unique accounts (2.03% of original)
 - **Fraud prevalence**: 0.5% (483 fraudulent transactions)
