@@ -59,15 +59,17 @@ class DatabaseManager:
                 if not has_records:
                     # For queries that don't return data (CREATE, SET, DELETE, ...)
                     return None
-                else:
-                    # For queries that return data, collect them first to avoid consumption issues
+                else:                    # For queries that return data, collect them first to avoid consumption issues
                     data = result.data()
                     if len(data) == 0:
                         return None
                         
-                    # If we expect to use single() later
-                    # Return the first record directly
-                    return data[0]
+                    # If only one record, return it directly
+                    # Otherwise, return the full list of records
+                    if len(data) == 1:
+                        return data[0]
+                    else:
+                        return data
             except Exception as e:
                 print(f"Query error: {str(e)}")
                 raise e

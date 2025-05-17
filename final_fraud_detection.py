@@ -75,11 +75,9 @@ class FinalFraudDetection:
             
             # Áp dụng trọng số đã tối ưu
             self.fraud_detector.feature_extractor.weights = self.config["feature_weights"]
-            
-            # Chạy pipeline với ngưỡng phân vị cấu hình
+              # Chạy pipeline với ngưỡng phân vị cấu hình
             self.fraud_detector.run_pipeline(
-                percentile_cutoff=self.config["percentile_cutoff"], 
-                run_graph_algorithms=True
+                percentile_cutoff=self.config["percentile_cutoff"]
             )
         else:
             print("\n⏩ Bỏ qua Bước 1: Sử dụng kết quả phát hiện bất thường hiện có...")
@@ -122,7 +120,8 @@ class FinalFraudDetection:
         # 5. Phát hiện gian lận dựa trên mối quan hệ
         print("\n🔄 Bước 4: Phát hiện gian lận liên quan...")
         self._detect_related_fraud(stats)
-          # 6. Lọc false positives nếu ưu tiên precision hoặc lọc các trường hợp rõ ràng cho chế độ recall
+          
+        # 6. Lọc false positives nếu ưu tiên precision hoặc lọc các trường hợp rõ ràng cho chế độ recall
         if balance_mode == "precision":
             print("\n🔄 Bước 5: Lọc các false positives (precision-focused)...")
             self._filter_false_positives(stats)
@@ -223,10 +222,17 @@ class FinalFraudDetection:
             
         RETURN reset_count
         """
-        
         reset_result = self.db_manager.run_query(reset_query)
-        reset_count = reset_result.get("reset_count", 0) if reset_result else 0
-        print(f"    ✅ Đã reset {reset_count} giao dịch và các tài khoản liên quan")    
+        
+        # Handle both list and dictionary results
+        reset_count = 0
+        if reset_result:
+            if isinstance(reset_result, dict):
+                reset_count = reset_result.get("reset_count", 0)
+            elif isinstance(reset_result, list) and len(reset_result) > 0:
+                reset_count = reset_result[0].get("reset_count", 0) if isinstance(reset_result[0], dict) else 0
+                
+        print(f"    ✅ Đã reset {reset_count} giao dịch và các tài khoản liên quan")
         
     def _apply_statistical_refinement(self, stats):
         """Áp dụng phân tích thống kê nâng cao để tối ưu kết quả chế độ recall."""
@@ -697,28 +703,36 @@ class FinalFraudDetection:
         result = self.db_manager.run_query(secondary_filter_query, params)
         filtered_count = result.get("filtered_count", 0) if result else 0
         print(f"    ✅ Đã lọc bỏ thêm {filtered_count} false positives thông qua đánh giá tổng hợp")
-
+    
     def _parse_record(self, record):
-        """Parse a record that might be a string into a usable dictionary."""
-        if isinstance(record, dict):
-            return record  # Already a dictionary
-        
-        if hasattr(record, "keys") and callable(getattr(record, "keys")):
-            # Handle Neo4j Record objects that have keys() method
-            return {key: record[key] for key in record.keys()}
-        
-        if isinstance(record, str):
-            # Log the raw string for debugging
-            print(f"  🔍 Raw record string: {record}")
+        """Parse record from Neo4j result."""
+        try:
+            # Trường hợp record là một đối tượng Neo4j Record
+            if hasattr(record, "keys") and callable(getattr(record, "keys")):
+                # Chuyển đổi Record thành dictionary
+                return {key: record[key] for key in record.keys()}
             
-            # Just return an empty dictionary with placeholder values
-            # The actual values will be set to default 0 by the calling code
-            return {"value": record}  # Use the string as an identifier only
-        
-        # For other types, return empty dict
-        print(f"  ⚠️ Unexpected record type: {type(record)}")
-        return {}
-        
+            # Trường hợp đã là dictionary
+            if isinstance(record, dict):
+                return record
+            
+            # Trường hợp record là một đối tượng có thể truy cập theo tên thuộc tính
+            if hasattr(record, "get") and callable(getattr(record, "get")):
+                # Nếu có phương thức get(), giả định nó hoạt động như dict
+                return record
+                
+            # Trường hợp record có thuộc tính đặc biệt
+            if hasattr(record, "_properties"):
+                # Một số đối tượng Neo4j node/relationship có thuộc tính _properties
+                return record._properties
+                
+            # Ghi log và trả về dictionary rỗng nếu không xử lý được
+            print(f"  ⚠️ Không thể phân tích dữ liệu kiểu: {type(record)}")
+            return {}
+            
+        except Exception as e:
+            print(f"  ⚠️ Lỗi khi phân tích bản ghi: {str(e)}")
+            return {}
     
     def _evaluate_results(self, mode="balanced"):
         """Đánh giá kết quả phát hiện."""
@@ -780,36 +794,46 @@ class FinalFraudDetection:
         print(f"  • F1 Score: {result['f1_score']:.4f}")
         print(f"  • Accuracy: {result['accuracy']:.4f}")    
         
-        # Thông tin chi tiết phát hiện theo độ tin cậy
+        # Thông tin chi tiết phát hiện theo độ tin cậy        # Phân tích theo độ tin cậy - Simplified Version        # Phân tích theo độ tin cậy
+        print("\n📊 Phân tích theo độ tin cậy:")
+        
         confidence_query = """
         MATCH ()-[tx:SENT]->()
         WHERE tx.flagged = true
-        
-        RETURN
-            tx.confidence as confidence_level,
-            COUNT(tx) as flagged_count,
-            SUM(CASE WHEN tx.ground_truth_fraud = true THEN 1 ELSE 0 END) as true_fraud,
-            toFloat(SUM(CASE WHEN tx.ground_truth_fraud = true THEN 1 ELSE 0 END)) / COUNT(tx) as precision_rate
-        ORDER BY tx.confidence DESC
+        WITH tx.confidence as confidence_level, 
+             COUNT(tx) as flagged_count,
+             SUM(CASE WHEN tx.ground_truth_fraud = true THEN 1 ELSE 0 END) as true_fraud
+        RETURN 
+            confidence_level,
+            flagged_count,
+            true_fraud,
+            toFloat(true_fraud) / flagged_count as precision_rate
+        ORDER BY confidence_level DESC
         """
         
         confidence_result = self.db_manager.run_query(confidence_query)
         if confidence_result:
-            print("\n📊 Phân tích theo độ tin cậy:")
-            for record in confidence_result:
-                # Parse the record using the utility function
-                parsed = self._parse_record(record)
+            try:
+                processed_items = []
                 
-                if not parsed:
-                    print(f"  ⚠️ Could not process record: {record[:30]}..." if isinstance(record, str) else f"  ⚠️ Could not process record: {type(record)}")
-                    continue
-                
-                confidence_level = parsed.get("confidence_level", 0)
-                flagged_count = parsed.get("flagged_count", 0)
-                true_fraud = parsed.get("true_fraud", 0)
-                precision_rate = parsed.get("precision_rate", 0)
-                
-                print(f"  • Độ tin cậy {confidence_level:.2f}: {flagged_count} giao dịch, {true_fraud} gian lận thực sự, precision {precision_rate:.4f}")
+                # Process results based on returned data structure
+                if isinstance(confidence_result, list):
+                    processed_items = confidence_result
+                elif isinstance(confidence_result, dict):
+                    processed_items = [confidence_result]
+                    
+                # Display results
+                for item in processed_items:
+                    confidence_level = item.get("confidence_level", 0)
+                    flagged_count = item.get("flagged_count", 0)
+                    true_fraud = item.get("true_fraud", 0)
+                    precision_rate = item.get("precision_rate", 0)
+                    
+                    print(f"  • Độ tin cậy {confidence_level:.2f}: {flagged_count} giao dịch, {true_fraud} gian lận thực sự, precision {precision_rate:.4f}")
+            except Exception as e:
+                print(f"  ⚠️ Không thể phân tích kết quả độ tin cậy: {str(e)}")
+        else:
+            print("  ⚠️ Không tìm thấy dữ liệu phân tích độ tin cậy")
         
         # Lưu metrics
         metrics = {
@@ -834,7 +858,6 @@ class FinalFraudDetection:
         filename = f"final_fraud_detection_{mode}_metrics.json"
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(metrics, f, indent=2)
-        
         print(f"\n✅ Đã lưu kết quả vào file {filename}")
         
         return metrics
@@ -843,71 +866,88 @@ class FinalFraudDetection:
         """Phân tích chi tiết các giao dịch gian lận được phát hiện."""
         
         # Phân tích theo loại quy tắc phát hiện
+        print("\n📊 Phân tích theo quy tắc phát hiện:")
+        
         rule_query = """
         MATCH ()-[tx:SENT]->()
         WHERE tx.flagged = true
-        
-        RETURN
-            tx.detection_rule as rule,
-            COUNT(tx) as flagged_count,
-            SUM(CASE WHEN tx.ground_truth_fraud = true THEN 1 ELSE 0 END) as true_fraud,
-            toFloat(SUM(CASE WHEN tx.ground_truth_fraud = true THEN 1 ELSE 0 END)) / COUNT(tx) as precision_rate
+        WITH tx.detection_rule as rule, 
+             COUNT(tx) as flagged_count,
+             SUM(CASE WHEN tx.ground_truth_fraud = true THEN 1 ELSE 0 END) as true_fraud
+        RETURN 
+            rule,
+            flagged_count,
+            true_fraud,
+            toFloat(true_fraud) / flagged_count as precision_rate
         ORDER BY true_fraud DESC
         """
         
         rule_result = self.db_manager.run_query(rule_query)
 
         if rule_result:
-            print("\n📊 Phân tích theo quy tắc phát hiện:")
-            rule_name = "unknown"
-            flagged_count = 0
-            true_fraud = 0
-            precision_rate = 0
-            
-            for record in rule_result:
-                parsed = self._parse_record(record)
-                value = parsed.get("value", "")
+            try:
+                processed_rules = []
                 
-                # Match column names to their corresponding variables
-                if value == "rule":
-                    rule_name = "unknown"  # Since we don't have actual value
-                elif value == "flagged_count":
-                    flagged_count = 0  # Default value
-                elif value == "true_fraud":
-                    true_fraud = 0  # Default value
-                elif value == "precision_rate":
-                    precision_rate = 0  # Default value
+                # Process results based on returned data structure
+                if isinstance(rule_result, list):
+                    processed_rules = rule_result
+                elif isinstance(rule_result, dict):
+                    processed_rules = [rule_result]
                     
-                    # After processing all columns, print the result
+                # Display results
+                for item in processed_rules:
+                    rule_name = item.get("rule", "unknown")
+                    flagged_count = item.get("flagged_count", 0)
+                    true_fraud = item.get("true_fraud", 0)
+                    precision_rate = item.get("precision_rate", 0)
+                    
                     print(f"  • Quy tắc {rule_name}: {flagged_count} giao dịch, {true_fraud} gian lận thực sự, precision {precision_rate:.4f}")
+            except Exception as e:
+                print(f"  ⚠️ Lỗi khi phân tích kết quả quy tắc: {str(e)}")
+        else:
+            print("  ⚠️ Không tìm thấy dữ liệu phân tích quy tắc phát hiện")
         
         # Phân tích theo lý do đánh dấu
+        print("\n📊 Top 5 lý do đánh dấu gian lận hiệu quả nhất:")
+        
         reason_query = """
         MATCH ()-[tx:SENT]->()
         WHERE tx.flagged = true
-        
-        RETURN
-            tx.flag_reason as reason,
-            COUNT(tx) as flagged_count,
-            SUM(CASE WHEN tx.ground_truth_fraud = true THEN 1 ELSE 0 END) as true_fraud
+        WITH tx.flag_reason as reason, 
+             COUNT(tx) as flagged_count,
+             SUM(CASE WHEN tx.ground_truth_fraud = true THEN 1 ELSE 0 END) as true_fraud
+        RETURN 
+            reason,
+            flagged_count,
+            true_fraud,
+            toFloat(true_fraud) / flagged_count as precision_rate
         ORDER BY true_fraud DESC
         LIMIT 5
         """
         
         reason_result = self.db_manager.run_query(reason_query)
         if reason_result:
-            print("\n📊 Top 5 lý do đánh dấu gian lận hiệu quả nhất:")
-            for record in reason_result:
-                parsed = self._parse_record(record)
+            try:
+                processed_reasons = []
                 
-                if not parsed:
-                    continue
+                # Process results based on returned data structure
+                if isinstance(reason_result, list):
+                    processed_reasons = reason_result
+                elif isinstance(reason_result, dict):
+                    processed_reasons = [reason_result]
                     
-                reason_text = parsed.get("reason", "unknown")
-                flagged_count = parsed.get("flagged_count", 0)
-                true_fraud = parsed.get("true_fraud", 0)
-                
-                print(f"  • {reason_text}: {flagged_count} giao dịch, {true_fraud} gian lận thực sự")
+                # Display results
+                for item in processed_reasons:
+                    reason_text = item.get("reason", "unknown")
+                    flagged_count = item.get("flagged_count", 0)
+                    true_fraud = item.get("true_fraud", 0)
+                    precision_rate = item.get("precision_rate", 0)
+                    
+                    print(f"  • {reason_text}: {flagged_count} giao dịch, {true_fraud} gian lận thực sự, precision {precision_rate:.4f}")
+            except Exception as e:
+                print(f"  ⚠️ Lỗi khi phân tích kết quả lý do: {str(e)}")
+        else:
+            print("  ⚠️ Không tìm thấy dữ liệu phân tích lý do đánh dấu")
 
 def main():
     parser = argparse.ArgumentParser(description='Hệ thống phát hiện gian lận cuối cùng')
