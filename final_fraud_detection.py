@@ -34,7 +34,8 @@ class FinalFraudDetection:
                 "low_anomaly": 0.147 * 0.98,          # 90th percentile giảm nhẹ cho recall tốt hơn
                 "amount_high": 2095000,               # ~ 99th percentile amount từ dataset mới
                 "amount_medium": 389600,              # ~ 90th percentile amount từ dataset mới
-            },            "feature_weights": {
+            },            
+            "feature_weights": {
                 "degScore": 0.38,                # Giữ nguyên - hiệu suất tốt
                 "hubScore": 0.22,                # Tăng thêm - có hiệu quả cao trong phát hiện fraud
                 "normCommunitySize": 0.18,       # Tăng thêm - có tương quan mạnh với fraud
@@ -43,7 +44,8 @@ class FinalFraudDetection:
                 "btwScore": 0.04,                # Giảm nhẹ
                 "prScore": 0.03,                 # Giảm thêm
                 "authScore": 0.03                # Giảm thêm
-            },            "confidence_levels": {
+            },            
+            "confidence_levels": {
                 "very_high": 0.96,   # Giữ nguyên - đã tối ưu cho precision
                 "high": 0.84,        # Giảm nhẹ để phù hợp với tỷ lệ gian lận cao hơn
                 "medium": 0.72,      # Giảm nhẹ để phù hợp với tỷ lệ gian lận cao hơn
