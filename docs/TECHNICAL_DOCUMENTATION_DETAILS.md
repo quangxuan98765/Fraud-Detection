@@ -439,6 +439,9 @@ The system supports three operational modes, each with different optimization go
 Each mode employs different thresholds and filtering strategies:
 
 #### Precision Mode False Positive Filtering
+
+Filtering low-confidence flags using the following pattern:
+
 $$
 \begin{aligned}
 \mathtt{MATCH } &(src:Account)-[tx:SENT]->(dest:Account) \\
@@ -461,7 +464,10 @@ $$
 &tx.\mathtt{filtered} = \mathtt{true}, \\
 &tx.\mathtt{filter\_reason} = \mathtt{"Precision mode filter"}
 \end{aligned}
-$$on amount (209,753)
+$$
+
+Where:
+- $\mu_{amount}$ is the average value of transactions (209,753)
 - $\theta_{medium}$ is the 95th percentile threshold (0.144)
 - $\theta_{high}$ is the 97.5th percentile threshold (0.150)
 - $\theta_{amount\_high}$ is the 99th percentile of amounts (2,095,000)
